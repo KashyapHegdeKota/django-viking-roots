@@ -9,7 +9,7 @@ body {
     justify-content: center;
 }
 
-.register-container {
+.container {
     background: #fff;
     padding: 2rem;
     border-radius: 12px;
@@ -18,12 +18,12 @@ body {
     text-align: center;
 }
 
-.register-container h2 {
+.container h2 {
     margin-bottom: 1.5rem;
     color: #1d3557;
 }
 
-.register-container label {
+.container label {
     display: block;
     margin-top: 1rem;
     text-align: left;
@@ -31,7 +31,7 @@ body {
     font-weight: bold;
 }
 
-.register-container input {
+.container input {
     width: 100%;
     padding: 0.6rem;
     margin-top: 0.3rem;
@@ -39,7 +39,7 @@ body {
     border-radius: 6px;
 }
 
-.register-container button {
+.container button {
     margin-top: 1.5rem;
     padding: 0.7rem;
     width: 100%;
@@ -52,7 +52,7 @@ body {
     transition: background 0.3s;
 }
 
-.register-container button:hover {
+.container button:hover {
     background: #1d3557;
 }
 
