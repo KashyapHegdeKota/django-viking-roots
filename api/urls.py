@@ -20,4 +20,5 @@ urlpatterns = [
     path('admin/', admin.site.urls),
 
     path('form/', include('form.urls')),
+    path("", lambda request: redirect("register")),
 ]
