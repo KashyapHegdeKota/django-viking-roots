@@ -44,3 +44,4 @@ def login_existing_user(req):
 def logout_user(req):
     logout(req)
     return redirect('login')
+    
