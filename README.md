@@ -8,9 +8,9 @@ This example shows how to use Django 4 on Vercel with Serverless Functions using
 
 https://django-template.vercel.app/
 
-## How it Works
+## How It Works
 
-Our Django application, `example` is configured as an installed application in `api/settings.py`:
+The Django application, `example`, is configured as an installed application in `api/settings.py`:
 
 ```python
 # api/settings.py
@@ -20,7 +20,7 @@ INSTALLED_APPS = [
 ]
 ```
 
-We allow "\*.vercel.app" subdomains in `ALLOWED_HOSTS`, in addition to 127.0.0.1:
+The configuration allows "\*.vercel.app" subdomains in `ALLOWED_HOSTS`, in addition to 127.0.0.1:
 
 ```python
 # api/settings.py
@@ -41,7 +41,7 @@ The corresponding `WSGI_APPLICATION` setting is configured to use the `app` vari
 WSGI_APPLICATION = 'api.wsgi.app'
 ```
 
-There is a single view which renders the current time in `example/views.py`:
+A single view renders the current time in `example/views.py`:
 
 ```python
 # example/views.py
@@ -63,7 +63,7 @@ def index(request):
     return HttpResponse(html)
 ```
 
-This view is exposed a URL through `example/urls.py`:
+This view is exposed via URL through `example/urls.py`:
 
 ```python
 # example/urls.py
@@ -77,7 +77,7 @@ urlpatterns = [
 ]
 ```
 
-Finally, it's made accessible to the Django server inside `api/urls.py`:
+Finally, the view is made accessible to the Django server inside `api/urls.py`:
 
 ```python
 # api/urls.py
@@ -97,7 +97,7 @@ This example uses the Web Server Gateway Interface (WSGI) with Django to enable 
 python manage.py runserver
 ```
 
-Your Django application is now available at `http://localhost:8000`.
+The Django application is now available at `http://localhost:8000`.
 
 ## One-Click Deploy
 
