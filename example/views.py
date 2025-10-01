@@ -15,6 +15,3 @@ def index(request):
     </html>
     '''
     return HttpResponse(html)
-
-def hello_world(request):
-    return HttpResponse("Hello, World!")
