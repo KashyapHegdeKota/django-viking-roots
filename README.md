@@ -1,3 +1,20 @@
+# Viking Roots – AI-Powered Heritage Storytelling Platform
+
+Welcome to the official repository for **Viking Roots**, a Capstone project focused on developing an AI-powered platform for heritage storytelling and cultural preservation. This platform will allow users to generate personalized stories based on their background, inputs, or preferences using natural language generation techniques.
+
+---
+
+## 💻 Project Stack
+
+- **Backend:** Django 4
+- **Frontend:** Coming Soon
+- **Database:** SQLite (dev) / PostgreSQL (prod)
+- **Deployment:** Vercel (for API/UI preview)
+- **Automation & Communication:** Monday.com, GitHub, Google Drive
+
+---
+
+
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Fdjango&demo-title=Django%20%2B%20Vercel&demo-description=Use%20Django%204%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fdjango-template.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994241/random/django.png)
 
 # Django + Vercel
