@@ -23,12 +23,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-=cldztbc4jg&xl0!x673!*v2_=p$$eu)=7*f#d0#zs$44xx-h^')
+SECRET_KEY = os.environ.get('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['127.0.0.1', '.vercel.app', 'localhost', '.onrender.com']
+ALLOWED_HOSTS = ['127.0.0.1', '.vercel.app', '.onrender.com']
+
+# Add your custom Render domain here when you get it
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
 # Add your custom Render domain here when you get it
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
@@ -47,6 +52,8 @@ INSTALLED_APPS = [
     'corsheaders',
     'form',
     'questionaire'
+    'form',
+    'corsheaders',
 ]
 
 MIDDLEWARE = [
@@ -59,8 +66,17 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
+]
+CORS_ALLOWED_ORIGINS = [
+    "https://frontend-viking-roots-ldwi.vercel.app",
+    # Add your new frontend URL here when ready
 ]
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://frontend-viking-roots-ldwi.vercel.app",
+    # Add your Render backend URL here (e.g., https://your-app.onrender.com)
+]
 ROOT_URLCONF = 'api.urls'
 
 # import os
