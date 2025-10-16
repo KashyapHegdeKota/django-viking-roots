@@ -2,3 +2,4 @@ Django==4.1.3
 psycopg2-binary
 dj-database-url
 whitenoise
+django-cors-headers==4.9.0

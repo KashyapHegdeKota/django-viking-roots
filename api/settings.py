@@ -54,11 +54,11 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
 ]
 CORS_ALLOWED_ORIGINS = [
-    "https://frontend-viking-roots-ldwi.vercel.app/"
+    "https://frontend-viking-roots-ldwi.vercel.app"
 ]
 
 CSRF_TRUSTED_ORIGINS = [
-    "https://frontend-viking-roots-ldwi.vercel.app/"
+    "https://frontend-viking-roots-ldwi.vercel.app"
 ]
 ROOT_URLCONF = 'api.urls'
 
