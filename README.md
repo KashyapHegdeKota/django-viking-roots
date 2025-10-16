@@ -1,3 +1,20 @@
+# Viking Roots – AI-Powered Heritage Storytelling Platform
+
+Welcome to the official repository for **Viking Roots**, a Capstone project focused on developing an AI-powered platform for heritage storytelling and cultural preservation. This platform will allow users to generate personalized stories based on their background, inputs, or preferences using natural language generation techniques.
+
+---
+
+## 💻 Project Stack
+
+- **Backend:** Django 4
+- **Frontend:** Coming Soon
+- **Database:** SQLite (dev) / PostgreSQL (prod)
+- **Deployment:** Vercel (for API/UI preview)
+- **Automation & Communication:** Monday.com, GitHub, Google Drive
+
+---
+
+
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Fdjango&demo-title=Django%20%2B%20Vercel&demo-description=Use%20Django%204%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fdjango-template.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994241/random/django.png)
 
 # Django + Vercel
@@ -8,9 +25,9 @@ This example shows how to use Django 4 on Vercel with Serverless Functions using
 
 https://django-template.vercel.app/
 
-## How it Works
+## How It Works
 
-Our Django application, `example` is configured as an installed application in `api/settings.py`:
+The Django application, `example`, is configured as an installed application in `api/settings.py`:
 
 ```python
 # api/settings.py
@@ -20,7 +37,7 @@ INSTALLED_APPS = [
 ]
 ```
 
-We allow "\*.vercel.app" subdomains in `ALLOWED_HOSTS`, in addition to 127.0.0.1:
+The configuration allows "\*.vercel.app" subdomains in `ALLOWED_HOSTS`, in addition to 127.0.0.1:
 
 ```python
 # api/settings.py
@@ -41,7 +58,7 @@ The corresponding `WSGI_APPLICATION` setting is configured to use the `app` vari
 WSGI_APPLICATION = 'api.wsgi.app'
 ```
 
-There is a single view which renders the current time in `example/views.py`:
+A single view renders the current time in `example/views.py`:
 
 ```python
 # example/views.py
@@ -63,7 +80,7 @@ def index(request):
     return HttpResponse(html)
 ```
 
-This view is exposed a URL through `example/urls.py`:
+This view is exposed via URL through `example/urls.py`:
 
 ```python
 # example/urls.py
@@ -77,7 +94,7 @@ urlpatterns = [
 ]
 ```
 
-Finally, it's made accessible to the Django server inside `api/urls.py`:
+Finally, the view is made accessible to the Django server inside `api/urls.py`:
 
 ```python
 # api/urls.py
@@ -97,7 +114,7 @@ This example uses the Web Server Gateway Interface (WSGI) with Django to enable 
 python manage.py runserver
 ```
 
-Your Django application is now available at `http://localhost:8000`.
+The Django application is now available at `http://localhost:8000`.
 
 ## One-Click Deploy
 

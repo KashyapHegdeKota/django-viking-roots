@@ -3,6 +3,7 @@ from datetime import datetime
 
 from django.http import HttpResponse
 
+# indexing
 def index(request):
     now = datetime.now()
     html = f'''

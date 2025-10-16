@@ -46,4 +46,9 @@ def login_existing_user(req):
 @csrf_exempt
 def logout_user(req):
     logout(req)
+<<<<<<< HEAD
     return JsonResponse({'message': 'Logged out'})
+=======
+    return redirect('login')
+    
+>>>>>>> 24156441b1f54135b072a92067383c02310732a8
