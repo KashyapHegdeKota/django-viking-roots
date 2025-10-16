@@ -1,32 +1,32 @@
-from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 from .services import QuestionaireService
+import json
 
-@api_view(['POST'])
-@permission_classes([AllowAny])
+
+@csrf_exempt
 def start_interview(request):
     """
     Get the initial welcome message
     Returns: initial greeting
     """
-    try:
-        service = QuestionaireService()
-        initial_message = service.get_initial_message()
-        
-        return Response({
-            'message': initial_message
-        }, status=status.HTTP_200_OK)
-        
-    except Exception as e:
-        return Response({
-            'error': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    if request.method == 'POST':
+        try:
+            service = QuestionaireService()
+            initial_message = service.get_initial_message()
+            
+            return JsonResponse({
+                'message': initial_message
+            }, status=200)
+            
+        except Exception as e:
+            return JsonResponse({
+                'error': str(e)
+            }, status=500)
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 
-@api_view(['POST'])
-@permission_classes([AllowAny])
+@csrf_exempt
 def send_message(request):
     """
     Send a message and get AI response
@@ -39,24 +39,31 @@ def send_message(request):
         ]
     }
     """
-    try:
-        user_message = request.data.get('message', '').strip()
-        chat_history = request.data.get('chat_history', [])
-        
-        if not user_message:
-            return Response({
-                'error': 'Message cannot be empty'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Get AI response
-        service = QuestionaireService()
-        ai_response = service.get_response(chat_history, user_message)
-        
-        return Response({
-            'message': ai_response
-        }, status=status.HTTP_200_OK)
-        
-    except Exception as e:
-        return Response({
-            'error': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            user_message = data.get('message', '').strip()
+            chat_history = data.get('chat_history', [])
+            
+            if not user_message:
+                return JsonResponse({
+                    'error': 'Message cannot be empty'
+                }, status=400)
+            
+            # Get AI response
+            service = QuestionaireService()
+            ai_response = service.get_response(chat_history, user_message)
+            
+            return JsonResponse({
+                'message': ai_response
+            }, status=200)
+            
+        except json.JSONDecodeError:
+            return JsonResponse({
+                'error': 'Invalid JSON'
+            }, status=400)
+        except Exception as e:
+            return JsonResponse({
+                'error': str(e)
+            }, status=500)
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
