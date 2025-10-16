@@ -5,6 +5,11 @@ whitenoise
 
 # Database
 dj-database-url
+whitenoise
+django-cors-headers
+djangorestframework 
+google-generativeai
+dotenv
 psycopg2-binary
 
 # CORS
