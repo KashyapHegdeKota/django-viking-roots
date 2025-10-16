@@ -30,17 +30,29 @@ def register_new_user(req):
 @csrf_exempt
 def login_existing_user(req):
     if req.method == 'POST':
-        data = json.loads(req.body)
-        username = data.get('username')
-        password = data.get('password')
-        user = authenticate(req, username=username, password=password)
+        try:
+            data = json.loads(req.body)
+            email = data.get('username')  # frontend sends email here
+            password = data.get('password')
 
-        if user is not None:
-            login(req, user)
-            return JsonResponse({'message': 'Login successful'})
-        else:
-            return JsonResponse({'error': 'Invalid credentials'}, status=401)
+            try:
+                user = User.objects.get(email=email)
+                username = user.username
+            except User.DoesNotExist:
+                return JsonResponse({'error': 'Invalid credentials'}, status=401)
+
+            user = authenticate(req, username=username, password=password)
+            if user is not None:
+                login(req, user)
+                return JsonResponse({'message': 'Login successful'})
+            else:
+                return JsonResponse({'error': 'Invalid credentials'}, status=401)
+        
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+    
     return JsonResponse({'error': 'Invalid request method'}, status=405)
+
 
 
 @csrf_exempt
