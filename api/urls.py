@@ -21,5 +21,6 @@ urlpatterns = [
     path('admin/', admin.site.urls),
 
     path('form/', include('form.urls')),
+    path('api/questionaire/', include('questionaire.urls')),
     path("", lambda request: redirect("register")),
 ]
