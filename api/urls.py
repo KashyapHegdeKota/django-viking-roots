@@ -14,13 +14,16 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include
 from django.shortcuts import redirect
+from django.urls import include, path
+
+from form import views as form_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-
     path('form/', include('form.urls')),
+    path('verify-otp/', form_views.verify_otp, name='verify-otp'),
+    path('resend-otp/', form_views.resend_otp, name='resend-otp'),
     path('api/questionaire/', include('questionaire.urls')),
     path("", lambda request: redirect("register")),
 ]
