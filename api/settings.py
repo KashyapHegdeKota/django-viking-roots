@@ -52,10 +52,12 @@ INSTALLED_APPS = [
     'questionaire',
     'form',
     'corsheaders',
+    'storages',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # Must be before CommonMiddleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -63,30 +65,30 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
 ]
+# CORS Configuration
 CORS_ALLOWED_ORIGINS = [
     "https://frontend-viking-roots-ldwi.vercel.app",
-    # Add your new frontend URL here when ready
-]
-
-CSRF_TRUSTED_ORIGINS = [
-    "https://frontend-viking-roots-ldwi.vercel.app",
-    # Add your Render backend URL here (e.g., https://your-app.onrender.com)
-]
-ROOT_URLCONF = 'api.urls'
-
-# import os
-# from dotenv import load_dotenv
-# load_dotenv()
-
-CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:3000",
     "http://127.0.0.1:5173",
 ]
 
-CORS_ALLOW_ALL_ORIGINS = True # Only for development
+# Allow credentials (cookies, sessions)
+CORS_ALLOW_CREDENTIALS = True
+
+# For development only - allows all origins
+CORS_ALLOW_ALL_ORIGINS = DEBUG  # True when DEBUG=True, False in production
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://frontend-viking-roots-ldwi.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    # Add your Render backend URL here (e.g., https://your-app.onrender.com)
+]
+
+ROOT_URLCONF = 'api.urls'
 
 # Gemini API Key for questionnaire
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
@@ -175,3 +177,29 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Email configuration for OTP delivery
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'no-reply@vikingroots.local')
+
+# Session Configuration for Cross-Origin Requests (Development)
+SESSION_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'
+SESSION_COOKIE_SECURE = not DEBUG  # False for development (http), True for production (https)
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_AGE = 86400  # 1 day
+
+# CSRF Configuration for Cross-Origin Requests
+CSRF_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'
+CSRF_COOKIE_SECURE = not DEBUG  # False for development (http), True for production (https)
+CSRF_COOKIE_HTTPONLY = False  # Must be False for JavaScript to read it
+
+# AWS S3 Configuration for Media Storage
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME')
+AWS_S3_REGION_NAME = os.getenv('AWS_S3_REGION_NAME', 'us-east-1')
+AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com'
+AWS_S3_FILE_OVERWRITE = False
+AWS_S3_OBJECT_PARAMETERS = {
+    'CacheControl': 'max-age=86400',
+}
+
+# Media files configuration
+MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/media/'
+DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
