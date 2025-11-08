@@ -10,7 +10,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import UserOTP
+from .models import UserOTP, UploadedImage, UserProfile
 
 
 OTP_EXPIRATION_MINUTES = 10
@@ -66,15 +66,15 @@ def register_new_user(req):
             return JsonResponse({'error': 'Email already registered'}, status=400)
 
         user = User.objects.create_user(username=username, email=email, password=password)
-        user.is_active = False
+        user.is_active = True  # Email verification disabled
         user.save(update_fields=['is_active'])
 
-        otp_record = _get_or_create_user_otp(user)
-        otp = _refresh_otp_record(otp_record)
+        # OTP verification disabled for now
+        # otp_record = _get_or_create_user_otp(user)
+        # otp = _refresh_otp_record(otp_record)
+        # _send_otp_email(email, otp)
 
-        _send_otp_email(email, otp)
-
-        return JsonResponse({'message': 'User registered successfully. OTP sent to email.'}, status=201)
+        return JsonResponse({'message': 'User registered successfully. You can now login.'}, status=201)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 
@@ -92,8 +92,9 @@ def login_existing_user(req):
             except User.DoesNotExist:
                 return JsonResponse({'error': 'Invalid credentials'}, status=401)
 
-            if not user.is_active:
-                return JsonResponse({'error': 'Email is not verified'}, status=403)
+            # Email verification disabled for now
+            # if not user.is_active:
+            #     return JsonResponse({'error': 'Email is not verified'}, status=403)
 
             user = authenticate(req, username=username, password=password)
             if user is not None:
@@ -187,3 +188,251 @@ def resend_otp(req):
     _send_otp_email(email, otp)
 
     return JsonResponse({'message': 'OTP sent successfully'}, status=200)
+
+
+@csrf_exempt
+def upload_image(req):
+    """Handle image upload to S3."""
+    if req.method != 'POST':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    try:
+        # Get the uploaded image from request.FILES
+        image_file = req.FILES.get('image')
+        if not image_file:
+            return JsonResponse({'error': 'No image file provided'}, status=400)
+
+        # Validate file size (max 10MB)
+        max_size = 10 * 1024 * 1024  # 10MB
+        if image_file.size > max_size:
+            return JsonResponse({'error': 'Image file too large. Maximum size is 10MB'}, status=400)
+
+        # Validate file type
+        allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+        if image_file.content_type not in allowed_types:
+            return JsonResponse({'error': 'Invalid file type. Only JPEG, PNG, GIF, and WebP images are allowed'}, status=400)
+
+        # Get optional metadata
+        title = req.POST.get('title', '')
+        description = req.POST.get('description', '')
+
+        # Get user if authenticated, otherwise allow anonymous upload
+        user = req.user if req.user.is_authenticated else None
+
+        # Create the image record (this will automatically upload to S3)
+        uploaded_image = UploadedImage.objects.create(
+            user=user,
+            image=image_file,
+            title=title,
+            description=description,
+            file_size=image_file.size
+        )
+
+        return JsonResponse({
+            'message': 'Image uploaded successfully',
+            'image': {
+                'id': uploaded_image.id,
+                'url': uploaded_image.image.url,
+                'title': uploaded_image.title,
+                'description': uploaded_image.description,
+                'file_size': uploaded_image.file_size,
+                'uploaded_at': uploaded_image.uploaded_at.isoformat(),
+            }
+        }, status=201)
+
+    except Exception as e:
+        return JsonResponse({'error': f'Upload failed: {str(e)}'}, status=500)
+
+
+@csrf_exempt
+def get_uploaded_images(req):
+    """Get list of uploaded images for the current user."""
+    if req.method != 'GET':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    try:
+        # Filter by user if authenticated, otherwise return all images
+        if req.user.is_authenticated:
+            images = UploadedImage.objects.filter(user=req.user)
+        else:
+            # For anonymous users, return recent public images
+            images = UploadedImage.objects.all()[:20]
+
+        images_data = [{
+            'id': img.id,
+            'url': img.image.url,
+            'title': img.title,
+            'description': img.description,
+            'file_size': img.file_size,
+            'uploaded_at': img.uploaded_at.isoformat(),
+        } for img in images]
+
+        return JsonResponse({'images': images_data}, status=200)
+
+    except Exception as e:
+        return JsonResponse({'error': f'Failed to fetch images: {str(e)}'}, status=500)
+
+
+@csrf_exempt
+def upload_profile_picture(req):
+    """Upload or update user's profile picture."""
+    if req.method != 'POST':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    if not req.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+
+    try:
+        # Get the uploaded profile picture
+        profile_picture = req.FILES.get('profile_picture')
+        if not profile_picture:
+            return JsonResponse({'error': 'No profile picture provided'}, status=400)
+
+        # Validate file size (max 5MB for profile pictures)
+        max_size = 5 * 1024 * 1024  # 5MB
+        if profile_picture.size > max_size:
+            return JsonResponse({'error': 'Profile picture too large. Maximum size is 5MB'}, status=400)
+
+        # Validate file type
+        allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+        if profile_picture.content_type not in allowed_types:
+            return JsonResponse({'error': 'Invalid file type. Only JPEG, PNG, and WebP are allowed'}, status=400)
+
+        # Get or create user profile
+        profile, created = UserProfile.objects.get_or_create(user=req.user)
+
+        # Get optional profile data
+        bio = req.POST.get('bio', profile.bio)
+        location = req.POST.get('location', profile.location)
+        website = req.POST.get('website', profile.website)
+
+        # Update profile
+        profile.profile_picture = profile_picture
+        profile.bio = bio
+        profile.location = location
+        profile.website = website
+        profile.profile_completed = True  # Mark profile as completed
+        profile.save()
+
+        return JsonResponse({
+            'message': 'Profile picture uploaded successfully',
+            'profile': {
+                'id': profile.id,
+                'username': req.user.username,
+                'profile_picture_url': profile.profile_picture.url if profile.profile_picture else None,
+                'bio': profile.bio,
+                'location': profile.location,
+                'website': profile.website,
+                'profile_completed': profile.profile_completed,
+            }
+        }, status=200)
+
+    except Exception as e:
+        return JsonResponse({'error': f'Upload failed: {str(e)}'}, status=500)
+
+
+@csrf_exempt
+def get_user_profile(req, username=None):
+    """Get user profile information."""
+    if req.method != 'GET':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    try:
+        # Get profile for specified user or current user
+        if username:
+            try:
+                user = User.objects.get(username=username)
+            except User.DoesNotExist:
+                return JsonResponse({'error': 'User not found'}, status=404)
+        else:
+            if not req.user.is_authenticated:
+                return JsonResponse({'error': 'Authentication required'}, status=401)
+            user = req.user
+
+        # Get or create profile
+        profile, created = UserProfile.objects.get_or_create(user=user)
+
+        return JsonResponse({
+            'profile': {
+                'id': profile.id,
+                'username': user.username,
+                'email': user.email if user == req.user else None,  # Only show email for own profile
+                'full_name': profile.full_name,
+                'profile_picture_url': profile.profile_picture.url if profile.profile_picture else None,
+                'cover_photo_url': profile.cover_photo.url if profile.cover_photo else None,
+                'bio': profile.bio,
+                'location': profile.location,
+                'website': profile.website,
+                'profile_completed': profile.profile_completed,
+                'created_at': profile.created_at.isoformat(),
+            }
+        }, status=200)
+
+    except Exception as e:
+        return JsonResponse({'error': f'Failed to fetch profile: {str(e)}'}, status=500)
+
+
+@csrf_exempt
+def update_profile(req):
+    """Update user profile information (bio, location, website)."""
+    if req.method != 'PUT' and req.method != 'PATCH':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    if not req.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+
+    try:
+        data = json.loads(req.body)
+
+        # Get or create profile
+        profile, created = UserProfile.objects.get_or_create(user=req.user)
+
+        # Update fields if provided
+        if 'bio' in data:
+            profile.bio = data['bio']
+        if 'location' in data:
+            profile.location = data['location']
+        if 'website' in data:
+            profile.website = data['website']
+
+        profile.save()
+
+        return JsonResponse({
+            'message': 'Profile updated successfully',
+            'profile': {
+                'id': profile.id,
+                'username': req.user.username,
+                'profile_picture_url': profile.profile_picture.url if profile.profile_picture else None,
+                'bio': profile.bio,
+                'location': profile.location,
+                'website': profile.website,
+                'profile_completed': profile.profile_completed,
+            }
+        }, status=200)
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': f'Update failed: {str(e)}'}, status=500)
+
+
+@csrf_exempt
+def check_profile_status(req):
+    """Check if user has completed their profile setup."""
+    if req.method != 'GET':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    if not req.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+
+    try:
+        profile, created = UserProfile.objects.get_or_create(user=req.user)
+
+        return JsonResponse({
+            'profile_completed': profile.profile_completed,
+            'has_profile_picture': profile.has_profile_picture,
+            'needs_setup': not profile.profile_completed,
+        }, status=200)
+
+    except Exception as e:
+        return JsonResponse({'error': f'Failed to check profile status: {str(e)}'}, status=500)

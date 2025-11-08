@@ -5,3 +5,6 @@ class FormConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'form'
 
+    def ready(self):
+        import form.signals  # noqa
+
