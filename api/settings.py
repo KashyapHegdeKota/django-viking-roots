@@ -28,7 +28,7 @@ SECRET_KEY = os.environ.get('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['127.0.0.1', '.vercel.app', 'gimlisaga.org', '.onrender.com']
+ALLOWED_HOSTS = ['127.0.0.1', '.vercel.app', 'www.gimlisaga.org', 'gimlisaga.org', '.onrender.com']
 
 # Add your custom Render domain here when you get it
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
