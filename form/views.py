@@ -65,9 +65,12 @@ def register_new_user(req):
         if User.objects.filter(email=email).exists():
             return JsonResponse({'error': 'Email already registered'}, status=400)
 
-        user = User.objects.create_user(username=username, email=email, password=password)
-        user.is_active = True  # Email verification disabled
-        user.save(update_fields=['is_active'])
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            is_active=True,
+        )
 
         # OTP verification disabled for now
         # otp_record = _get_or_create_user_otp(user)
