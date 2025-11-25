@@ -1,12 +1,13 @@
-# questionaire/services.py (updated)
+# questionaire/services/ai_services.py
 import os
 import google.generativeai as genai
 from django.conf import settings
-from .storage import HeritageDataStorage
+# Remove this old import:
+# from .storage import HeritageDataStorage
 
 
 class QuestionaireService:
-    """Service class to handle Gemini AI interactions with data storage"""
+    """Service class to handle Gemini AI interactions"""
     
     def __init__(self, user_id=None):
         api_key = getattr(settings, 'GEMINI_API_KEY', os.getenv('GEMINI_API_KEY'))
@@ -15,8 +16,8 @@ class QuestionaireService:
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel('gemini-2.0-flash')
         
-        # Initialize storage if user_id provided
-        self.storage = HeritageDataStorage(user_id) if user_id else None
+        # Remove storage initialization - we handle it in views now
+        # self.storage = HeritageDataStorage(user_id) if user_id else None
 
     @staticmethod
     def get_system_prompt():
@@ -75,10 +76,10 @@ class QuestionaireService:
 
     def get_response(self, chat_history, user_message):
         """
-        Get AI response for a user message and extract/store data tags
+        Get AI response for a user message
         chat_history: list of dicts with 'role' and 'content'
         user_message: string
-        Returns: dict with cleaned response and extracted data
+        Returns: dict with response text
         """
         # Build the full history including system prompt
         history = self.build_chat_history(chat_history)
@@ -89,15 +90,8 @@ class QuestionaireService:
         # Send message and get response
         response = chat.send_message(user_message)
         
-        # Extract and store data tags if storage is available
-        if self.storage:
-            cleaned_text, extracted_data = self.storage.extract_and_store_tags(response.text)
-            return {
-                'message': cleaned_text,
-                'extracted_data': extracted_data
-            }
-        else:
-            return {
-                'message': response.text,
-                'extracted_data': None
-            }
+        # Just return the raw response - storage is handled in views
+        return {
+            'message': response.text,
+            'extracted_data': None
+        }

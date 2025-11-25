@@ -10,4 +10,7 @@ urlpatterns = [
     path('complete/', views.complete_interview, name='complete_interview'),
     path('data/', views.get_heritage_data, name='get_heritage_data'),
     path('tree/', views.get_family_tree, name='get_family_tree'),
+    path('matches/', views.find_potential_matches, name='find_matches'),
+    path('matches/<int:match_id>/confirm/', views.confirm_ancestor_match, name='confirm_match'),
+    path('tree/merged/', views.get_merged_family_tree, name='merged_tree'),
 ]

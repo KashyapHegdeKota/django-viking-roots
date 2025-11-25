@@ -1,4 +1,4 @@
-# questionaire/s3_storage.py
+# questionaire/services/s3_storage.py
 import json
 import boto3
 from botocore.exceptions import ClientError

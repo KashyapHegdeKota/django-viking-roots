@@ -1,7 +1,8 @@
-# questionaire/db_storage.py
+# questionaire/services/db_storage.py
+
 from django.db import transaction
 from django.contrib.auth.models import User
-from .models import UserProfile, Ancestor, AncestorFact, Story, InterviewSession
+from ..models import UserProfile, Ancestor, AncestorFact, Story, InterviewSession  # Use .. to go up one level
 from .s3_storage import S3StorageService
 from datetime import datetime
 import re
