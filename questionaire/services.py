@@ -1,16 +1,22 @@
+# questionaire/services.py (updated)
 import os
 import google.generativeai as genai
 from django.conf import settings
+from .storage import HeritageDataStorage
+
 
 class QuestionaireService:
-    """Simple service class to handle Gemini AI interactions"""
+    """Service class to handle Gemini AI interactions with data storage"""
     
-    def __init__(self):
+    def __init__(self, user_id=None):
         api_key = getattr(settings, 'GEMINI_API_KEY', os.getenv('GEMINI_API_KEY'))
         if not api_key:
             raise ValueError("GEMINI_API_KEY not found in settings or environment")
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel('gemini-2.0-flash')
+        
+        # Initialize storage if user_id provided
+        self.storage = HeritageDataStorage(user_id) if user_id else None
 
     @staticmethod
     def get_system_prompt():
@@ -24,8 +30,8 @@ class QuestionaireService:
         --- PHASE 1: The Welcome ---
         Your first goal is to welcome the user and gather their basic information.
         1.  Start with the thematic welcome: "Hail, traveler, and welcome to the digital hearth of Viking Roots! I am your guide, here to help you chart the great saga of your ancestors. To begin, what name do you go by?"
-        2.  Once they provide their first name, ask for their family name.
-        3.  Once they provide their last name, acknowledge it warmly.
+        2.  Once they provide their first name, you MUST tag it like this: [DATA:key=first_name, value=TheirName]. Then, ask for their family name.
+        3.  Once they provide their last name, you MUST tag it like this: [DATA:key=last_name, value=TheirLastName].
 
         --- PHASE 2: Weaving the Saga (The Main Interview) ---
         After getting their name, your role shifts to a conversational historian. You will now follow these rules strictly:
@@ -34,6 +40,21 @@ class QuestionaireService:
         3.  Your questions must feel natural and conversational, like chatting with a grandparent. Be warm, curious, and encouraging.
         4.  Focus on gathering rich details about ancestors, life events, places, physical traits, and stories.
         5.  Build on the user's previous answers to make the conversation flow naturally.
+
+        --- CRITICAL DATA EXTRACTION RULES (PHASE 2 ONLY) ---
+        You MUST tag entities and facts using the following two formats. This is a system command.
+
+        1.  **To define a new person:**
+            Use the `[PERSON]` tag when a new ancestor is first mentioned. Create a simple, unique `id` for them (e.g., their lowercase name and relation).
+            Format: `[PERSON:id=unique_id, name=PersonName, relation=RelationToUser]`
+            Example: If the user mentions "my grandfather Bjorn", you must include the tag:
+            `[PERSON:id=bjorn_grandfather, name=Bjorn, relation=grandfather]`
+
+        2.  **To add a fact to a person:**
+            Use the `[FACT]` tag in subsequent responses to link new information to an existing person's `id`.
+            Format: `[FACT:person_id=unique_id, key=FactName, value=FactValue]`
+            Example: If the user says Bjorn was from Norway, your next question MUST include:
+            `[FACT:person_id=bjorn_grandfather, key=origin, value=Norway]`
         """
 
     def get_initial_message(self):
@@ -54,10 +75,10 @@ class QuestionaireService:
 
     def get_response(self, chat_history, user_message):
         """
-        Get AI response for a user message
+        Get AI response for a user message and extract/store data tags
         chat_history: list of dicts with 'role' and 'content'
         user_message: string
-        Returns: AI response string
+        Returns: dict with cleaned response and extracted data
         """
         # Build the full history including system prompt
         history = self.build_chat_history(chat_history)
@@ -68,4 +89,15 @@ class QuestionaireService:
         # Send message and get response
         response = chat.send_message(user_message)
         
-        return response.text
+        # Extract and store data tags if storage is available
+        if self.storage:
+            cleaned_text, extracted_data = self.storage.extract_and_store_tags(response.text)
+            return {
+                'message': cleaned_text,
+                'extracted_data': extracted_data
+            }
+        else:
+            return {
+                'message': response.text,
+                'extracted_data': None
+            }
