@@ -49,3 +49,5 @@ tzdata==2025.2
 uritemplate==4.2.0
 urllib3==2.5.0
 whitenoise==6.11.0
+jellyfish==1.2.1
+python-gedcom==1.1.0

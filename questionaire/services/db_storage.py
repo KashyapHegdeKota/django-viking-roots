@@ -1,12 +1,12 @@
-# questionaire/services/db_storage.py
-
 from django.db import transaction
 from django.contrib.auth.models import User
-from ..models import UserProfile, Ancestor, AncestorFact, Story, InterviewSession  # Use .. to go up one level
+from ..models import (
+    UserProfile, Ancestor, AncestorFact, Story, InterviewSession,
+    HeritageEvent, HeritageLocation, EventParticipation
+)
 from .s3_storage import S3StorageService
 from datetime import datetime
 import re
-
 
 class DatabaseStorageService:
     """Handle database operations for heritage data"""
@@ -14,168 +14,172 @@ class DatabaseStorageService:
     def __init__(self, user):
         self.user = user
         self.s3_service = S3StorageService()
-        
-        # Get or create user profile
         self.profile, _ = UserProfile.objects.get_or_create(user=user)
     
     def parse_key_value_pairs(self, s):
-        """Helper function to parse comma-separated key=value strings"""
-        return dict(item.strip().split('=', 1) for item in s.split(','))
+        pairs = {}
+        for item in s.split(','):
+            if '=' in item:
+                k, v = item.split('=', 1)
+                pairs[k.strip()] = v.strip()
+        return pairs
     
     @transaction.atomic
     def extract_and_store_tags(self, text):
-        """
-        Extract tags from AI response and store in database
-        Returns: (cleaned_text, extracted_data_dict)
-        """
-        extracted = {"persons": [], "facts": [], "user_data": []}
-        
-        # Pattern to find all tag types
-        pattern = r'\[(PERSON|FACT|DATA):([^\]]+)\]'
+        extracted = {"persons": [], "events": [], "facts": [], "user_data": []}
+        pattern = r'\[(PERSON|FACT|DATA|EVENT):([^\]]+)\]'
         matches = re.findall(pattern, text)
         
         for tag_type, content in matches:
             try:
-                attributes = self.parse_key_value_pairs(content)
+                attrs = self.parse_key_value_pairs(content)
                 
                 if tag_type == "DATA":
-                    key = attributes.get('key')
-                    value = attributes.get('value')
+                    key = attrs.get('key')
+                    value = attrs.get('value')
                     if key and value:
-                        # Store user data in profile
                         setattr(self.profile, key, value)
                         self.profile.save()
                         extracted['user_data'].append({key: value})
                 
                 elif tag_type == "PERSON":
-                    person_id = attributes.pop('id', None)
+                    person_id = attrs.pop('id', None)
                     if person_id:
-                        # Create or update ancestor
+                        birth_loc_name = attrs.pop('birth_place', None)
+                        location = None
+                        if birth_loc_name:
+                            location, _ = HeritageLocation.objects.get_or_create(
+                                name=birth_loc_name, defaults={'location_type': 'other'}
+                            )
+
+                        defaults = {
+                            'name': attrs.get('name', ''),
+                            'relation': attrs.get('relation', ''),
+                            'gender': attrs.get('gender', ''),
+                            'origin': attrs.get('origin', ''),
+                            'birth_location': location
+                        }
+
+                        birth_year = attrs.get('birth_year')
+                        if birth_year and birth_year.isdigit():
+                            defaults['birth_year'] = int(birth_year)
+
                         ancestor, created = Ancestor.objects.update_or_create(
-                            user=self.user,
-                            unique_id=person_id,
-                            defaults={
-                                'name': attributes.get('name', ''),
-                                'relation': attributes.get('relation', ''),
-                                'birth_year': attributes.get('birth_year'),
-                                'birth_place': attributes.get('birth_place', ''),
-                                'origin': attributes.get('origin', ''),
-                            }
+                            user=self.user, unique_id=person_id, defaults=defaults
                         )
-                        extracted['persons'].append({
-                            'id': person_id,
-                            'data': attributes,
-                            'created': created
-                        })
+                        extracted['persons'].append({'id': person_id, 'name': ancestor.name})
                 
-                elif tag_type == "FACT":
-                    person_id = attributes.pop('person_id', None)
-                    fact_key = attributes.pop('key', None)
-                    fact_value = attributes.pop('value', None)
-                    
-                    if person_id and fact_key and fact_value:
-                        try:
-                            ancestor = Ancestor.objects.get(user=self.user, unique_id=person_id)
-                            
-                            # Check if it's a structured field
-                            if fact_key in ['birth_year', 'death_year', 'birth_place', 'origin']:
-                                setattr(ancestor, fact_key, fact_value)
-                                ancestor.save()
-                            else:
-                                # Store as a fact
-                                AncestorFact.objects.update_or_create(
-                                    ancestor=ancestor,
-                                    key=fact_key,
-                                    defaults={'value': fact_value}
+                elif tag_type == "EVENT":
+                    title = attrs.get('title')
+                    date_str = attrs.get('date')
+                    loc_name = attrs.get('location')
+                    person_id = attrs.get('person_id')
+
+                    if title:
+                        date_obj = None
+                        if date_str:
+                            try:
+                                date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+                            except ValueError:
+                                pass
+
+                        location = None
+                        if loc_name:
+                            location, _ = HeritageLocation.objects.get_or_create(
+                                name=loc_name, defaults={'location_type': 'other'}
+                            )
+
+                        event, _ = HeritageEvent.objects.get_or_create(
+                            title=title, date_start=date_obj,
+                            defaults={'location': location, 'event_type': attrs.get('type', 'personal')}
+                        )
+
+                        if person_id:
+                            try:
+                                anc = Ancestor.objects.get(user=self.user, unique_id=person_id)
+                                EventParticipation.objects.get_or_create(
+                                    event=event, ancestor=anc, defaults={'role': 'Principal'}
                                 )
-                            
-                            extracted['facts'].append({
-                                'person_id': person_id,
-                                'key': fact_key,
-                                'value': fact_value
-                            })
+                                if 'birth' in title.lower() and date_obj:
+                                    anc.birth_date = date_obj
+                                    anc.birth_year = date_obj.year
+                                    anc.save()
+                            except Ancestor.DoesNotExist:
+                                pass
+                        
+                        extracted['events'].append({'title': title, 'date': date_str})
+
+                elif tag_type == "FACT":
+                    person_id = attrs.pop('person_id', None)
+                    key = attrs.pop('key', None)
+                    value = attrs.pop('value', None)
+                    
+                    if person_id and key and value:
+                        try:
+                            anc = Ancestor.objects.get(user=self.user, unique_id=person_id)
+                            AncestorFact.objects.create(ancestor=anc, key=key, value=value)
+                            extracted['facts'].append({'person': person_id, 'key': key})
                         except Ancestor.DoesNotExist:
                             pass
                             
             except Exception as e:
                 print(f"Error parsing tag content: '{content}'. Error: {e}")
         
-        # Clean text of tags
         cleaned_text = re.sub(pattern, '', text).strip()
-        
         return cleaned_text, extracted
     
     def get_all_heritage_data(self):
-        """Get all heritage data for this user in JSON format"""
-        ancestors = Ancestor.objects.filter(user=self.user).prefetch_related('facts', 'stories')
+        """Get all heritage data for this user in JSON format, including Events"""
+        ancestors = Ancestor.objects.filter(user=self.user).prefetch_related('facts', 'stories', 'media_tags__media')
         
         people = {}
         for ancestor in ancestors:
             person_data = {
                 'name': ancestor.name,
                 'relation': ancestor.relation,
+                'birth_year': ancestor.birth_year,
+                'birth_date': ancestor.birth_date.isoformat() if ancestor.birth_date else None,
+                'origin': ancestor.origin,
             }
             
-            # Add optional fields
-            if ancestor.birth_year:
-                person_data['birth_year'] = ancestor.birth_year
-            if ancestor.death_year:
-                person_data['death_year'] = ancestor.death_year
-            if ancestor.birth_place:
-                person_data['birth_place'] = ancestor.birth_place
-            if ancestor.origin:
-                person_data['origin'] = ancestor.origin
-            
-            # Add facts
             for fact in ancestor.facts.all():
                 person_data[fact.key] = fact.value
             
-            # Add stories
             if ancestor.stories.exists():
-                person_data['stories'] = [
-                    {
-                        'content': story.content,
-                        'context': story.context,
-                        'created_at': story.created_at.isoformat()
-                    }
-                    for story in ancestor.stories.all()
-                ]
+                person_data['stories'] = [{'content': s.content, 'created_at': s.created_at.isoformat()} for s in ancestor.stories.all()]
+            
+            photos = []
+            for tag in ancestor.media_tags.all():
+                photos.append(tag.media.file.url)
+            person_data['photos'] = photos
             
             people[ancestor.unique_id] = person_data
+
+        # FIX: Ensure all timeline events are backed up to S3
+        events_data = []
+        user_events = HeritageEvent.objects.filter(participants__ancestor__user=self.user).distinct()
+        for evt in user_events:
+            events_data.append({
+                'title': evt.title,
+                'description': evt.description,
+                'date_start': evt.date_start.isoformat() if evt.date_start else None,
+                'location': evt.location.name if evt.location else None,
+                'event_type': evt.event_type
+            })
         
         return {
-            'user': {
-                'first_name': self.profile.first_name,
-                'last_name': self.profile.last_name,
-                'username': self.user.username,
-            },
+            'user': self.user.username,
             'people': people,
-            'metadata': {
-                'total_ancestors': len(people),
-                'interview_completed': self.profile.interview_completed,
-                'last_updated': self.profile.updated_at.isoformat()
-            }
+            'events': events_data,
+            'metadata': {'generated_at': datetime.now().isoformat()}
         }
+
+    def save_interview_session(self, session_id, chat_history, completed=False):
+        InterviewSession.objects.update_or_create(
+            user=self.user, session_id=session_id,
+            defaults={'chat_history': chat_history, 'completed': completed}
+        )
     
     def create_backup_to_s3(self):
-        """Create a JSON backup and upload to S3"""
         data = self.get_all_heritage_data()
-        url = self.s3_service.upload_json_backup(self.user.id, data)
-        
-        # Update profile with backup URL
-        self.profile.json_backup_url = url
-        self.profile.save()
-        
-        return url
-    
-    def save_interview_session(self, session_id, chat_history, completed=False):
-        """Save or update interview session"""
-        session, created = InterviewSession.objects.update_or_create(
-            user=self.user,
-            session_id=session_id,
-            defaults={
-                'chat_history': chat_history,
-                'completed': completed
-            }
-        )
-        return session
+        return self.s3_service.upload_json_backup(self.user.id, data)

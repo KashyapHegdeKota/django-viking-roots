@@ -1,14 +1,62 @@
-# questionaire/models.py
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
 
+# --- UTILITY MODELS ---
+
+class ImportBatch(models.Model):
+    """Tracks bulk imports (GEDCOM) so they can be undone"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    filename = models.CharField(max_length=200)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(
+        max_length=20, 
+        choices=[('processing', 'Processing'), ('completed', 'Completed'), ('failed', 'Failed')],
+        default='processing'
+    )
+
+    def __str__(self):
+        return f"Batch: {self.filename} ({self.uploaded_at.date()})"
+
+
+class HeritageLocation(models.Model):
+    """
+    First-Class Citizen for Places (The 'Where')
+    Used for Homesteads, Birthplaces, Cemeteries.
+    """
+    name = models.CharField(max_length=200, help_text="Current name, e.g., 'Gimli, MB'")
+    original_name = models.CharField(max_length=200, blank=True, help_text="Historical name, e.g., 'Vídney'")
+    
+    # Geospatial for Maps
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    
+    location_type = models.CharField(
+        max_length=50, 
+        choices=[('farm', 'Farm/Homestead'), ('town', 'Town'), ('cemetery', 'Cemetery'), ('other', 'Other')],
+        default='other'
+    )
+
+    def __str__(self):
+        return self.original_name or self.name
+
+
+# --- CORE IDENTITY ---
 
 class UserProfile(models.Model):
     """Extended user profile for heritage data"""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='heritage_profile')
     first_name = models.CharField(max_length=100, blank=True)
     last_name = models.CharField(max_length=100, blank=True)
+    
+    # Access Control
+    access_level = models.CharField(
+        max_length=20, 
+        choices=[('contributor', 'Contributor'), ('curator', 'Curator')], 
+        default='contributor'
+    )
+    
+    # Interview State
     interview_completed = models.BooleanField(default=False)
     interview_started_at = models.DateTimeField(null=True, blank=True)
     interview_completed_at = models.DateTimeField(null=True, blank=True)
@@ -22,37 +70,52 @@ class UserProfile(models.Model):
 
 
 class Ancestor(models.Model):
-    """Individual ancestor/family member"""
+    """
+    The Index/Identity Node (The 'Who').
+    Now supports precise dates and links to Import Batches.
+    """
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ancestors')
+    import_batch = models.ForeignKey(ImportBatch, null=True, blank=True, on_delete=models.SET_NULL)
     
-    # Basic info
+    # Identity
     unique_id = models.CharField(max_length=100, help_text="Unique identifier like 'bjorn_grandfather'")
     name = models.CharField(max_length=200)
-    relation = models.CharField(max_length=100, help_text="Relationship to user (e.g., grandfather, aunt)")
+    relation = models.CharField(max_length=100, help_text="Relationship to user")
+    gender = models.CharField(max_length=10, choices=[('M', 'Male'), ('F', 'Female'), ('O', 'Other')], blank=True)
     
-    # Optional structured fields
-    birth_year = models.IntegerField(null=True, blank=True)
+    # Vital Stats (The 'When')
+    birth_date = models.DateField(null=True, blank=True)
+    birth_year = models.IntegerField(null=True, blank=True, help_text="Fallback if full date unknown")
+    death_date = models.DateField(null=True, blank=True)
     death_year = models.IntegerField(null=True, blank=True)
-    birth_place = models.CharField(max_length=200, blank=True)
-    origin = models.CharField(max_length=200, blank=True)
     
-    # Metadata
+    # Link to Location (The 'Where')
+    birth_location = models.ForeignKey(HeritageLocation, related_name='births', null=True, blank=True, on_delete=models.SET_NULL)
+    origin = models.CharField(max_length=200, blank=True, help_text="Legacy field for simple text origin")
+    
+    # Provenance
+    source_type = models.CharField(
+        max_length=20, 
+        choices=[('ai_chat', 'AI Interview'), ('manual', 'Manual Entry'), ('gedcom', 'GEDCOM')],
+        default='ai_chat'
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
         unique_together = ['user', 'unique_id']
         indexes = [
             models.Index(fields=['user', 'unique_id']),
             models.Index(fields=['user', 'relation']),
         ]
-    
+
     def __str__(self):
-        return f"{self.name} ({self.relation}) - {self.user.username}"
+        return f"{self.name} ({self.birth_year or '?'})"
 
 
 class AncestorFact(models.Model):
-    """Additional facts/attributes about ancestors"""
+    """Unstructured AI Data (The 'What else')"""
     ancestor = models.ForeignKey(Ancestor, on_delete=models.CASCADE, related_name='facts')
     key = models.CharField(max_length=100, help_text="Fact name (e.g., occupation, hair_color)")
     value = models.TextField(help_text="Fact value")
@@ -67,6 +130,82 @@ class AncestorFact(models.Model):
     def __str__(self):
         return f"{self.ancestor.name}: {self.key} = {self.value}"
 
+
+# --- THE SAGA ENGINE (EVENTS) ---
+
+class HeritageEvent(models.Model):
+    """
+    Shared History (The 'Saga').
+    Example: 'Arrival of S.S. St. Patrick' or '1950 Flood'.
+    """
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    
+    date_start = models.DateField(null=True, blank=True)
+    date_end = models.DateField(null=True, blank=True)
+    
+    location = models.ForeignKey(HeritageLocation, on_delete=models.SET_NULL, null=True, blank=True)
+    
+    event_type = models.CharField(
+        max_length=20,
+        choices=[('personal', 'Personal (Birth/Marriage)'), ('community', 'Community (Migration/Festival)')],
+        default='personal'
+    )
+
+    def __str__(self):
+        return f"{self.title} ({self.date_start.year if self.date_start else '?'})"
+
+
+class EventParticipation(models.Model):
+    """Links people to events with roles"""
+    event = models.ForeignKey(HeritageEvent, on_delete=models.CASCADE, related_name='participants')
+    ancestor = models.ForeignKey(Ancestor, on_delete=models.CASCADE, related_name='events')
+    role = models.CharField(max_length=100, help_text="e.g. Passenger, Witness, Groom")
+
+    def __str__(self):
+        return f"{self.ancestor.name} was {self.role} at {self.event.title}"
+
+
+# --- MEDIA & EVIDENCE ---
+
+class HeritageMedia(models.Model):
+    """
+    The Asset (Photo/Doc).
+    Decoupled from Ancestor so one photo can have multiple people.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    file = models.FileField(upload_to='heritage_media/%Y/%m/')
+    media_type = models.CharField(max_length=20, choices=[('photo', 'Photo'), ('audio', 'Audio'), ('doc', 'Document'), ('video', 'Video')])
+    title = models.CharField(max_length=200, blank=True)
+    description = models.TextField(blank=True)
+    
+    # Metadata
+    file_size = models.IntegerField(null=True, blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return self.title or self.file.name
+
+
+class MediaTag(models.Model):
+    """Tags a specific person in a photo"""
+    media = models.ForeignKey(HeritageMedia, on_delete=models.CASCADE, related_name='tags')
+    ancestor = models.ForeignKey(Ancestor, on_delete=models.CASCADE, related_name='media_tags')
+    
+    # Coordinates for 'Face Box' on the UI (0.0 to 1.0 percentage)
+    box_x = models.FloatField(default=0)
+    box_y = models.FloatField(default=0)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.ancestor.name} in {self.media.title}"
+
+
+# --- CHAT & STORY ---
 
 class Story(models.Model):
     """Stories and narratives about ancestors"""
@@ -94,34 +233,6 @@ class Story(models.Model):
         return f"Story about {self.ancestor.name} by {self.user.username}"
 
 
-class AncestorMedia(models.Model):
-    """Photos, documents, and other media"""
-    MEDIA_TYPES = [
-        ('photo', 'Photo'),
-        ('document', 'Document'),
-        ('video', 'Video'),
-        ('audio', 'Audio'),
-    ]
-    
-    ancestor = models.ForeignKey(Ancestor, on_delete=models.CASCADE, related_name='media')
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ancestor_media')
-    
-    file = models.FileField(upload_to='ancestor_media/%Y/%m/')
-    media_type = models.CharField(max_length=20, choices=MEDIA_TYPES)
-    title = models.CharField(max_length=200, blank=True)
-    description = models.TextField(blank=True)
-    
-    # Metadata
-    file_size = models.IntegerField(null=True, blank=True)
-    uploaded_at = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        ordering = ['-uploaded_at']
-    
-    def __str__(self):
-        return f"{self.media_type}: {self.title or self.file.name}"
-
-
 class InterviewSession(models.Model):
     """Track interview chat sessions"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='interview_sessions')
@@ -139,8 +250,9 @@ class InterviewSession(models.Model):
     
     def __str__(self):
         return f"Interview: {self.user.username} - {self.started_at.date()}"
-    
-# questionaire/models.py (add these models)
+
+
+# --- COMMUNITY & MATCHING ---
 
 class FamilyConnection(models.Model):
     """Connects users who share family members"""

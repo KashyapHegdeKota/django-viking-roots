@@ -2,7 +2,6 @@
 from ..models import Ancestor, AncestorMatch, MergedFamilyTree
 from django.db.models import Q
 
-
 class FamilyTreeMergeService:
     """Combines multiple users' family trees into unified view"""
     
@@ -27,7 +26,7 @@ class FamilyTreeMergeService:
         # Get all ancestors for these users
         all_ancestors = Ancestor.objects.filter(
             user__in=self.users
-        ).prefetch_related('facts', 'stories')
+        ).prefetch_related('facts', 'stories', 'media_tags__media')
         
         # Get confirmed matches
         confirmed_matches = AncestorMatch.objects.filter(
@@ -140,9 +139,13 @@ class FamilyTreeMergeService:
                     'author': ancestor.user.username
                 })
             
-            # Collect photos
-            for media in ancestor.media.filter(media_type='photo'):
-                merged['photos'].append(media.file.url)
+            # Collect photos using the new MediaTag logic
+            for tag in ancestor.media_tags.all():
+                if tag.media.media_type == 'photo':
+                    merged['photos'].append(tag.media.file.url)
+        
+        # Remove duplicates
+        merged['photos'] = list(set(merged['photos']))
         
         return merged
     
@@ -150,10 +153,6 @@ class FamilyTreeMergeService:
         """Infer parent-child relationships from relation strings"""
         edges = []
         
-        # Simple inference: if someone is "father" to userA and someone else
-        # is "grandfather" to userA, they're parent-child
-        
-        # This is simplified - real implementation would need more logic
         for node in nodes:
             for contributor in node['contributors']:
                 relation = contributor['relation_to_user'].lower()

@@ -1,14 +1,29 @@
-# questionaire/views.py
+import json
+import uuid
+import os
+import traceback
+from datetime import datetime
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 from django.utils import timezone
-from .services import QuestionaireService, DatabaseStorageService
-from .models import Ancestor
-import json
-import uuid
+from django.shortcuts import get_object_or_404
+from django.core.files.storage import FileSystemStorage
 
-##TODO Make login a requirement for all calls here. @login_required
+# Unified Services Import
+from .services import (
+    QuestionaireService, 
+    DatabaseStorageService, 
+    FamilyMatchingService, 
+    FamilyTreeMergeService,
+    GedcomImportService
+)
+
+# Unified Models Import
+from .models import Ancestor, AncestorMatch, HeritageEvent, HeritageLocation
+from django.contrib.auth.models import User
+
+## TODO: Add @login_required decorator to all views in production
 
 def get_or_create_session_id(request):
     """Get or create a unique session ID"""
@@ -23,10 +38,11 @@ def get_user_for_request(request):
         return request.user
     else:
         # For testing without auth, create or use a test user
-        from django.contrib.auth.models import User
         user, _ = User.objects.get_or_create(username='testuser')
         return user
 
+
+# --- INTERVIEW FLOW ---
 
 @csrf_exempt
 def start_interview(request):
@@ -34,7 +50,6 @@ def start_interview(request):
     if request.method == 'POST':
         try:
             user = get_user_for_request(request)
-            
             session_id = get_or_create_session_id(request)
             service = QuestionaireService()
             initial_message = service.get_initial_message()
@@ -50,11 +65,8 @@ def start_interview(request):
             }, status=200)
             
         except Exception as e:
-            import traceback
-            traceback.print_exc()  # This will show full error in console
-            return JsonResponse({
-                'error': str(e)
-            }, status=500)
+            traceback.print_exc()
+            return JsonResponse({'error': str(e)}, status=500)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 
@@ -68,9 +80,7 @@ def send_message(request):
             chat_history = data.get('chat_history', [])
             
             if not user_message:
-                return JsonResponse({
-                    'error': 'Message cannot be empty'
-                }, status=400)
+                return JsonResponse({'error': 'Message cannot be empty'}, status=400)
             
             user = get_user_for_request(request)
             
@@ -96,35 +106,10 @@ def send_message(request):
             }, status=200)
             
         except json.JSONDecodeError:
-            return JsonResponse({
-                'error': 'Invalid JSON'
-            }, status=400)
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
         except Exception as e:
-            import traceback
             traceback.print_exc()
-            return JsonResponse({
-                'error': str(e)
-            }, status=500)
-    return JsonResponse({'error': 'Invalid request method'}, status=405)
-
-
-@csrf_exempt
-def get_heritage_data(request):
-    """Get all collected heritage data for the current user"""
-    if request.method == 'GET':
-        try:
-            user = get_user_for_request(request)
-            storage = DatabaseStorageService(user)
-            data = storage.get_all_heritage_data()
-            
-            return JsonResponse(data, status=200)
-            
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return JsonResponse({
-                'error': str(e)
-            }, status=500)
+            return JsonResponse({'error': str(e)}, status=500)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 
@@ -151,11 +136,27 @@ def complete_interview(request):
             }, status=200)
             
         except Exception as e:
-            import traceback
             traceback.print_exc()
-            return JsonResponse({
-                'error': str(e)
-            }, status=500)
+            return JsonResponse({'error': str(e)}, status=500)
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+
+# --- DATA RETRIEVAL ---
+
+@csrf_exempt
+def get_heritage_data(request):
+    """Get all collected heritage data for the current user"""
+    if request.method == 'GET':
+        try:
+            user = get_user_for_request(request)
+            storage = DatabaseStorageService(user)
+            data = storage.get_all_heritage_data()
+            
+            return JsonResponse(data, status=200)
+            
+        except Exception as e:
+            traceback.print_exc()
+            return JsonResponse({'error': str(e)}, status=500)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 
@@ -165,17 +166,29 @@ def get_family_tree(request):
     if request.method == 'GET':
         try:
             user = get_user_for_request(request)
-            ancestors = Ancestor.objects.filter(user=user).prefetch_related('facts')
+            ancestors = Ancestor.objects.filter(user=user).prefetch_related('facts', 'media_tags__media')
             
             tree_data = []
             for ancestor in ancestors:
+                photos = []
+                for tag in ancestor.media_tags.all():
+                    photos.append({
+                        'url': tag.media.file.url,
+                        'title': tag.media.title,
+                        'box_x': tag.box_x,
+                        'box_y': tag.box_y
+                    })
+
                 node = {
                     'id': ancestor.unique_id,
                     'name': ancestor.name,
                     'relation': ancestor.relation,
+                    'gender': ancestor.gender,
                     'birth_year': ancestor.birth_year,
+                    'birth_date': ancestor.birth_date.isoformat() if ancestor.birth_date else None,
                     'death_year': ancestor.death_year,
                     'origin': ancestor.origin,
+                    'photos': photos
                 }
                 tree_data.append(node)
             
@@ -185,14 +198,183 @@ def get_family_tree(request):
             }, status=200)
             
         except Exception as e:
-            import traceback
             traceback.print_exc()
-            return JsonResponse({
-                'error': str(e)
-            }, status=500)
+            return JsonResponse({'error': str(e)}, status=500)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
-# questionaire/views.py (add these)
+
+@csrf_exempt
+def get_timeline_data(request):
+    """SPONSOR REQUIREMENT: Left-Aligned Chronological Timeline."""
+    if request.method == 'GET':
+        try:
+            user = get_user_for_request(request)
+            ancestors = Ancestor.objects.filter(user=user).exclude(birth_year__isnull=True)
+            
+            timeline_events = []
+            
+            for anc in ancestors:
+                timeline_events.append({
+                    'id': f"{anc.unique_id}_birth",
+                    'year': anc.birth_year,
+                    'date': anc.birth_date.isoformat() if anc.birth_date else None,
+                    'title': f"Birth of {anc.name}",
+                    'description': f"Born in {anc.birth_location.name if anc.birth_location else anc.origin or 'Unknown'}",
+                    'type': 'birth',
+                    'person_id': anc.unique_id
+                })
+                
+                if anc.death_year:
+                    timeline_events.append({
+                        'id': f"{anc.unique_id}_death",
+                        'year': anc.death_year,
+                        'date': anc.death_date.isoformat() if anc.death_date else None,
+                        'title': f"Passing of {anc.name}",
+                        'type': 'death',
+                        'person_id': anc.unique_id
+                    })
+                
+                for participation in anc.events.all():
+                    evt = participation.event
+                    timeline_events.append({
+                        'id': f"evt_{evt.id}_{anc.id}",
+                        'year': evt.date_start.year if evt.date_start else None,
+                        'date': evt.date_start.isoformat() if evt.date_start else None,
+                        'title': evt.title,
+                        'description': f"{anc.name} was a {participation.role}",
+                        'type': 'event',
+                        'person_id': anc.unique_id
+                    })
+
+            def sort_key(x):
+                if x['date']: return x['date']
+                if x['year']: return f"{x['year']}-01-01"
+                return "0000-00-00"
+
+            timeline_events.sort(key=sort_key)
+            return JsonResponse({'timeline': timeline_events}, status=200)
+            
+        except Exception as e:
+            traceback.print_exc()
+            return JsonResponse({'error': str(e)}, status=500)
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+
+# --- MANUAL MODIFICATIONS & IMPORTS (Tickets #156 & #161) ---
+
+@csrf_exempt
+def upload_gedcom(request):
+    """Handle GEDCOM file uploads"""
+    if request.method == 'POST' and request.FILES.get('file'):
+        try:
+            user = get_user_for_request(request)
+            gedcom_file = request.FILES['file']
+            
+            fs = FileSystemStorage()
+            filename = fs.save(gedcom_file.name, gedcom_file)
+            file_path = fs.path(filename)
+            
+            importer = GedcomImportService(user)
+            batch = importer.process_gedcom_file(file_path, gedcom_file.name)
+            
+            os.remove(file_path)
+            return JsonResponse({'success': True, 'message': f'Successfully processed {batch.filename}'}, status=200)
+            
+        except Exception as e:
+            traceback.print_exc()
+            return JsonResponse({'error': str(e)}, status=500)
+    return JsonResponse({'error': 'No file uploaded'}, status=400)
+
+
+@csrf_exempt
+def create_ancestor(request):
+    """Create a new ancestor manually (POST)"""
+    if request.method == 'POST':
+        try:
+            user = get_user_for_request(request)
+            data = json.loads(request.body)
+            unique_id = data.get('id') or f"manual_{uuid.uuid4().hex[:8]}"
+            
+            ancestor = Ancestor.objects.create(
+                user=user,
+                unique_id=unique_id,
+                name=data.get('name', 'Unknown Ancestor'),
+                relation=data.get('relation', ''),
+                gender=data.get('gender', ''),
+                birth_year=data.get('birth_year'),
+                death_year=data.get('death_year'),
+                origin=data.get('origin', ''),
+                source_type='manual'
+            )
+            return JsonResponse({'success': True, 'id': ancestor.unique_id}, status=201)
+        except Exception as e:
+            traceback.print_exc()
+            return JsonResponse({'error': str(e)}, status=500)
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+
+@csrf_exempt
+def manage_ancestor(request, ancestor_id):
+    """Update (PUT) or Delete (DELETE) an existing ancestor"""
+    user = get_user_for_request(request)
+    try:
+        ancestor = Ancestor.objects.get(user=user, unique_id=ancestor_id)
+    except Ancestor.DoesNotExist:
+        return JsonResponse({'error': 'Ancestor not found'}, status=404)
+
+    if request.method == 'PUT':
+        try:
+            data = json.loads(request.body)
+            if 'name' in data: ancestor.name = data['name']
+            if 'relation' in data: ancestor.relation = data['relation']
+            if 'gender' in data: ancestor.gender = data['gender']
+            if 'birth_year' in data: ancestor.birth_year = data['birth_year']
+            if 'death_year' in data: ancestor.death_year = data['death_year']
+            if 'origin' in data: ancestor.origin = data['origin']
+            
+            ancestor.save()
+            return JsonResponse({'success': True, 'message': 'Ancestor updated'})
+        except Exception as e:
+            traceback.print_exc()
+            return JsonResponse({'error': str(e)}, status=500)
+
+    elif request.method == 'DELETE':
+        ancestor.delete()
+        return JsonResponse({'success': True, 'message': 'Ancestor deleted'})
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+
+@csrf_exempt
+def manage_event(request, event_id):
+    """Update (PUT) or Delete (DELETE) a shared timeline event"""
+    user = get_user_for_request(request)
+    try:
+        event = HeritageEvent.objects.get(id=event_id)
+        if not event.participants.filter(ancestor__user=user).exists():
+            return JsonResponse({'error': 'Permission denied'}, status=403)
+    except HeritageEvent.DoesNotExist:
+        return JsonResponse({'error': 'Event not found'}, status=404)
+
+    if request.method == 'PUT':
+        try:
+            data = json.loads(request.body)
+            if 'title' in data: event.title = data['title']
+            if 'description' in data: event.description = data['description']
+            if 'event_type' in data: event.event_type = data['event_type']
+            
+            event.save()
+            return JsonResponse({'success': True, 'message': 'Event updated'})
+        except Exception as e:
+            traceback.print_exc()
+            return JsonResponse({'error': str(e)}, status=500)
+
+    elif request.method == 'DELETE':
+        event.delete()
+        return JsonResponse({'success': True, 'message': 'Event deleted'})
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+
+# --- COMMUNITY FEATURES (Sprint 9) ---
 
 @csrf_exempt
 def find_potential_matches(request):
@@ -200,13 +382,9 @@ def find_potential_matches(request):
     if request.method == 'GET':
         try:
             user = get_user_for_request(request)
-            
             matching_service = FamilyMatchingService()
             
-            # Find ancestor matches
             matches = matching_service.suggest_ancestor_matches_for_user(user)
-            
-            # Find family connections
             connections = matching_service.find_family_connections(user)
             
             return JsonResponse({
@@ -232,7 +410,6 @@ def find_potential_matches(request):
             }, status=200)
             
         except Exception as e:
-            import traceback
             traceback.print_exc()
             return JsonResponse({'error': str(e)}, status=500)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
@@ -244,14 +421,16 @@ def confirm_ancestor_match(request, match_id):
     if request.method == 'POST':
         try:
             user = get_user_for_request(request)
+            match = get_object_or_404(AncestorMatch, id=match_id)
             
-            match = AncestorMatch.objects.get(id=match_id)
+            if match.ancestor1.user != user and match.ancestor2.user != user:
+                return JsonResponse({'error': 'Permission denied'}, status=403)
+                
             match.status = 'confirmed'
             match.reviewed_by = user
             match.reviewed_at = timezone.now()
             match.save()
             
-            # Create family connection if not exists
             matching_service = FamilyMatchingService()
             connection = matching_service.create_family_connection(
                 match.ancestor1.user,
@@ -270,7 +449,6 @@ def confirm_ancestor_match(request, match_id):
             }, status=200)
             
         except Exception as e:
-            import traceback
             traceback.print_exc()
             return JsonResponse({'error': str(e)}, status=500)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
@@ -284,18 +462,15 @@ def get_merged_family_tree(request):
             data = json.loads(request.body)
             user = get_user_for_request(request)
             
-            # Get list of user IDs to include in merge
             user_ids = data.get('user_ids', [user.id])
             users = User.objects.filter(id__in=user_ids)
             
-            # Build merged tree
             merge_service = FamilyTreeMergeService(users)
             merged_tree = merge_service.build_merged_tree()
             
             return JsonResponse(merged_tree, status=200)
             
         except Exception as e:
-            import traceback
             traceback.print_exc()
             return JsonResponse({'error': str(e)}, status=500)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
