@@ -99,12 +99,21 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'api.wsgi.app'
 
-# Database - Neon PostgreSQL
+# Database Configuration
 DATABASES = {
     "default": dj_database_url.config(
-        default=os.environ.get("DATABASE_URL")
+        default=os.environ.get("DATABASE_URL"),
+        conn_max_age=600,
+        ssl_require=not DEBUG  # Only require SSL in production if you prefer
     )
 }
+
+# Add this to handle the RDS SSL Certificate specifically
+if not DEBUG:
+    DATABASES["default"]["OPTIONS"] = {
+        "sslmode": "verify-full",
+        "sslrootcert": os.path.join(BASE_DIR, "global-bundle.pem"),
+    }
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
