@@ -24,6 +24,8 @@ urlpatterns = [
     path('form/', include('form.urls')),
     path('verify-otp/', form_views.verify_otp, name='verify-otp'),
     path('resend-otp/', form_views.resend_otp, name='resend-otp'),
-    path('api/questionaire/', include('questionaire.urls')),
+    path('api/heritage/', include('heritage.urls')),
+    path('api/ai_interview/', include('ai_interview.urls')),
+    path('api/community/', include('community.urls')),
     path("", lambda request: redirect("register")),
 ]

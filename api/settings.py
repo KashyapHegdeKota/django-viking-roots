@@ -33,7 +33,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'questionaire',
+    
+    # Your New Split Architecture
+    'heritage',
+    'ai_interview',
+    'community',
+    
+    # Other Apps
     'form',
     'corsheaders',
     'storages',
