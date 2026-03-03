@@ -5,7 +5,7 @@ import traceback
 from datetime import datetime
 from difflib import SequenceMatcher
 
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.core.files.storage import FileSystemStorage
 from django.shortcuts import get_object_or_404
@@ -166,9 +166,8 @@ def get_timeline_data(request):
             return JsonResponse({'error': str(e)}, status=500)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
-
 # ---------------------------------------------------------------------------
-# GEDCOM import
+# GEDCOM import & export
 # ---------------------------------------------------------------------------
 
 @csrf_exempt
@@ -188,6 +187,33 @@ def upload_gedcom(request):
             traceback.print_exc()
             return JsonResponse({'error': str(e)}, status=500)
     return JsonResponse({'error': 'No file uploaded'}, status=400)
+
+
+# --- ADD THIS NEW FUNCTION BELOW UPLOAD_GEDCOM ---
+from .services.gedcom_service import GedcomExportService
+
+@csrf_exempt
+def export_gedcom(request):
+    """Generates a .ged file from the user's AWS RDS data"""
+    if request.method == 'GET':
+        try:
+            user = get_user_for_request(request)
+            export_service = GedcomExportService(user)
+            gedcom_string = export_service.generate_gedcom()
+            
+            # Format the HTTP Response to force a file download
+            response = HttpResponse(gedcom_string, content_type='text/plain')
+            
+            # Generate a dynamic filename based on the date
+            filename = f"VikingRoots_{user.username}_{datetime.now().strftime('%Y%m%d')}.ged"
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            return response
+            
+        except Exception as e:
+            traceback.print_exc()
+            return JsonResponse({'error': str(e)}, status=500)
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 
 # ---------------------------------------------------------------------------

@@ -113,3 +113,76 @@ class GedcomImportService:
             val = child.get_value()
             if tag not in ignore_tags and val:
                 AncestorFact.objects.get_or_create(ancestor=ancestor, key=tag, defaults={'value': val})
+                
+class GedcomExportService:
+    def __init__(self, user):
+        self.user = user
+
+    def generate_gedcom(self):
+        """Fetches user data from RDS and builds a GEDCOM 5.5 string"""
+        ancestors = Ancestor.objects.filter(user=self.user).prefetch_related('facts', 'birth_location')
+        
+        lines = []
+        
+        # 1. THE HEADER
+        lines.append("0 HEAD")
+        lines.append("1 SOUR VikingRoots")
+        lines.append("2 NAME Viking Roots Heritage Engine")
+        lines.append("1 GEDC")
+        lines.append("2 VERS 5.5.5")
+        lines.append("2 FORM LINEAGE-LINKED")
+        lines.append("1 CHAR UTF-8")
+        lines.append(f"1 DATE {datetime.now().strftime('%d %b %Y').upper()}")
+        
+        # 2. THE INDIVIDUALS
+        for anc in ancestors:
+            # Create a safe, unique GEDCOM pointer
+            safe_id = f"@I{anc.id}@"
+            lines.append(f"0 {safe_id} INDI")
+            
+            # Formatted Name (GEDCOM requires slashes around the surname)
+            parts = anc.name.rsplit(' ', 1)
+            if len(parts) == 2:
+                ged_name = f"{parts[0]} /{parts[1]}/"
+            else:
+                ged_name = f"{anc.name} //"
+            lines.append(f"1 NAME {ged_name}")
+            
+            # Gender
+            if anc.gender:
+                lines.append(f"1 SEX {anc.gender}")
+            
+            # Birth Event
+            if anc.birth_year or anc.birth_date or anc.birth_location or anc.origin:
+                lines.append("1 BIRT")
+                if anc.birth_date:
+                    lines.append(f"2 DATE {anc.birth_date.strftime('%d %b %Y').upper()}")
+                elif anc.birth_year:
+                    lines.append(f"2 DATE {anc.birth_year}")
+                
+                if anc.birth_location:
+                    lines.append(f"2 PLAC {anc.birth_location.name}")
+                elif anc.origin:
+                    lines.append(f"2 PLAC {anc.origin}")
+                    
+            # Death Event
+            if anc.death_year or anc.death_date:
+                lines.append("1 DEAT")
+                if anc.death_date:
+                    lines.append(f"2 DATE {anc.death_date.strftime('%d %b %Y').upper()}")
+                elif anc.death_year:
+                    lines.append(f"2 DATE {anc.death_year}")
+                    
+            # Extracted AI Facts & Notes
+            for fact in anc.facts.all():
+                # If it's an original 3-4 letter GEDCOM tag, export it natively
+                if len(fact.key) <= 4 and fact.key.isupper():
+                    lines.append(f"1 {fact.key} {fact.value}")
+                else:
+                    # Otherwise, export the AI's custom fact as a standard note
+                    lines.append(f"1 NOTE {fact.key}: {fact.value}")
+                    
+        # 3. THE TRAILER (With the carriage return to prevent crashes!)
+        lines.append("0 TRLR")
+        
+        return "\n".join(lines) + "\n"

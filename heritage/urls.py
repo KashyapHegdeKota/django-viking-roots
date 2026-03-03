@@ -11,7 +11,8 @@ urlpatterns = [
 
     # Bulk Import (Ticket #156)
     path('upload-gedcom/', views.upload_gedcom, name='upload_gedcom'),
-
+    path('export-gedcom/', views.export_gedcom, name='export_gedcom'),
+    
     # Locations — NEW (Ticket #161)
     # GET  /heritage/locations/?search=Gimli
     # POST /heritage/locations/
