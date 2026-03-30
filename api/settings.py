@@ -18,7 +18,7 @@ SECRET_KEY = os.environ.get('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['127.0.0.1', '.vercel.app', 'www.gimlisaga.org', 'gimlisaga.org', '.onrender.com', 'localhost']
+ALLOWED_HOSTS = ['127.0.0.1', '.vercel.app', 'www.gimlisaga.org', 'gimlisaga.org', '.onrender.com', 'gimlisaga.org', 'www.gimlisaga.org', 'localhost']
 
 # Add your custom Render domain here when you get it
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
@@ -56,14 +56,18 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+CORS_ALLOW_CREDENTIALS = True
 
-# CORS Configuration
+# Required for cross-origin session cookies (frontend on gimlisaga.org, backend on render.com)
+SESSION_COOKIE_SAMESITE = 'None'
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SECURE = True
+
 CORS_ALLOWED_ORIGINS = [
     "https://frontend-viking-roots-ldwi.vercel.app",
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "https://gimlisaga.org"
+    "https://gimlisaga.org",
+    "https://www.gimlisaga.org",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -71,10 +75,8 @@ CORS_ALLOW_ALL_ORIGINS = DEBUG  # True when DEBUG=True
 
 CSRF_TRUSTED_ORIGINS = [
     "https://frontend-viking-roots-ldwi.vercel.app",
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "https://gimlisaga.org"
+    "https://gimlisaga.org",
+    "https://www.gimlisaga.org",
 ]
 
 ROOT_URLCONF = 'api.urls'
