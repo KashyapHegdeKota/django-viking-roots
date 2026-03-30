@@ -1,12 +1,11 @@
 from django.urls import path
 from . import views
 
-app_name = 'questionaire'
+app_name = 'ai_interview'
 
 urlpatterns = [
-    # Get initial welcome message
+    # Interview Flow
     path('start/', views.start_interview, name='start_interview'),
-    
-    # Send message and get response
     path('message/', views.send_message, name='send_message'),
+    path('complete/', views.complete_interview, name='complete_interview'),
 ]
