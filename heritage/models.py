@@ -39,6 +39,25 @@ class Ancestor(models.Model):
     origin = models.CharField(max_length=200, blank=True)
     source_type = models.CharField(max_length=20, choices=[('ai_chat', 'AI Interview'), ('manual', 'Manual Entry'), ('gedcom', 'GEDCOM')], default='ai_chat')
 
+    father = models.ForeignKey(
+        'self', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='children_as_father'
+    )
+    mother = models.ForeignKey(
+        'self', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='children_as_mother'
+    )
+    spouses = models.ManyToManyField(
+        'self', 
+        blank=True
+    )
+
 class AncestorFact(models.Model):
     ancestor = models.ForeignKey(Ancestor, on_delete=models.CASCADE, related_name='facts')
     key = models.CharField(max_length=100)

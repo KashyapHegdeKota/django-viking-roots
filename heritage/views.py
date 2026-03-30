@@ -34,6 +34,11 @@ def _serialize_ancestor(ancestor):
          'box_x': tag.box_x, 'box_y': tag.box_y}
         for tag in ancestor.media_tags.all()
     ]
+    
+    # Safely gather all children whether this ancestor is the father or the mother
+    children_ids = list(ancestor.children_as_father.values_list('unique_id', flat=True)) + \
+                   list(ancestor.children_as_mother.values_list('unique_id', flat=True))
+
     return {
         'id':                ancestor.unique_id,
         'name':              ancestor.name,
@@ -49,6 +54,10 @@ def _serialize_ancestor(ancestor):
         'source_type':       ancestor.source_type,
         'facts':             facts,
         'photos':            photos,
+        'father_id':         ancestor.father.unique_id if ancestor.father else None,
+        'mother_id':         ancestor.mother.unique_id if ancestor.mother else None,
+        'spouse_ids':        list(ancestor.spouses.values_list('unique_id', flat=True)),
+        'child_ids':         children_ids,
     }
 
 
