@@ -13,7 +13,6 @@ from .models import (
     Group, GroupMembership, GroupPost,
 )
 from .services.matching_service import FamilyMatchingService
-from .services.tree_merge_service import FamilyTreeMergeService
 
 def get_user_for_request(request):
     """Get authenticated user or create test user"""
@@ -22,6 +21,16 @@ def get_user_for_request(request):
     else:
         user, _ = User.objects.get_or_create(username='testuser')
         return user
+
+def _get_person_owner(person):
+    """Finds the user who owns the tree this person belongs to."""
+    access = person.tree.access_rules.filter(role='owner').first()
+    return access.user if access else None
+
+def _get_person_name(person):
+    """Safely constructs the full name from the new schema."""
+    return f"{person.first_name} {person.last_name}".strip() or "Unknown"
+
 
 @csrf_exempt
 def find_potential_matches(request):
@@ -34,18 +43,22 @@ def find_potential_matches(request):
             matches = matching_service.suggest_ancestor_matches_for_user(user)
             connections = matching_service.find_family_connections(user)
             
+            potential_matches_data = []
+            for m in matches:
+                user1 = _get_person_owner(m.person1)
+                user2 = _get_person_owner(m.person2)
+                
+                potential_matches_data.append({
+                    'id': m.id,
+                    'your_ancestor': _get_person_name(m.person1) if user1 == user else _get_person_name(m.person2),
+                    'their_ancestor': _get_person_name(m.person2) if user1 == user else _get_person_name(m.person1),
+                    'other_user': user2.username if user1 == user else (user1.username if user1 else 'Unknown'),
+                    'confidence': m.confidence_score,
+                    'matching_attributes': m.matching_attributes
+                })
+            
             return JsonResponse({
-                'potential_matches': [
-                    {
-                        'id': m.id,
-                        'your_ancestor': m.ancestor1.name if m.ancestor1.user == user else m.ancestor2.name,
-                        'their_ancestor': m.ancestor2.name if m.ancestor1.user == user else m.ancestor1.name,
-                        'other_user': m.ancestor2.user.username if m.ancestor1.user == user else m.ancestor1.user.username,
-                        'confidence': m.confidence_score,
-                        'matching_attributes': m.matching_attributes
-                    }
-                    for m in matches
-                ],
+                'potential_matches': potential_matches_data,
                 'family_connections': [
                     {
                         'user': conn['user'].username,
@@ -61,15 +74,19 @@ def find_potential_matches(request):
             return JsonResponse({'error': str(e)}, status=500)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
+
 @csrf_exempt
 def confirm_ancestor_match(request, match_id):
-    """Confirm that two ancestors are the same person"""
+    """Confirm that two persons are the same person"""
     if request.method == 'POST':
         try:
             user = get_user_for_request(request)
             match = get_object_or_404(AncestorMatch, id=match_id)
             
-            if match.ancestor1.user != user and match.ancestor2.user != user:
+            user1 = _get_person_owner(match.person1)
+            user2 = _get_person_owner(match.person2)
+            
+            if user1 != user and user2 != user:
                 return JsonResponse({'error': 'Permission denied'}, status=403)
                 
             match.status = 'confirmed'
@@ -79,13 +96,10 @@ def confirm_ancestor_match(request, match_id):
             
             matching_service = FamilyMatchingService()
             connection = matching_service.create_family_connection(
-                match.ancestor1.user,
-                match.ancestor2.user,
-                matching_service.infer_user_relationship(
-                    match.ancestor1.relation,
-                    match.ancestor2.relation
-                ),
-                match.ancestor1.name,
+                user1,
+                user2,
+                "Relative", # Hardcoded default since graph tracing handles specifics now
+                _get_person_name(match.person1),
                 match.confidence_score
             )
             
