@@ -18,7 +18,7 @@ SECRET_KEY = os.environ.get('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['127.0.0.1', '.vercel.app', 'www.gimlisaga.org', 'gimlisaga.org', '.onrender.com', 'gimlisaga.org', 'www.gimlisaga.org', 'localhost']
+ALLOWED_HOSTS = ['127.0.0.1', '.vercel.app', 'www.gimlisaga.org', 'gimlisaga.org', '.onrender.com', 'gimlisaga.org', 'www.gimlisaga.org', 'localhost', 'frontend-viking-roots-one.vercel.app']
 
 # Add your custom Render domain here when you get it
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
@@ -70,6 +70,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://www.gimlisaga.org",
     "http://localhost:5173",       # ← add these two
     "http://127.0.0.1:5173",  
+    "https://frontend-viking-roots-one.vercel.app",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -81,6 +82,7 @@ CSRF_TRUSTED_ORIGINS = [
     "https://www.gimlisaga.org",
     "http://localhost:5173",       # ← same here
     "http://127.0.0.1:5173",
+    "https://frontend-viking-roots-one.vercel.app",
 ]
 
 ROOT_URLCONF = 'api.urls'
