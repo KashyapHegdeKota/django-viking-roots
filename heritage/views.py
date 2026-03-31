@@ -11,107 +11,111 @@ from django.core.files.storage import FileSystemStorage
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
 
-from .models import Ancestor, AncestorFact, HeritageEvent, HeritageLocation, EventParticipation
-from .services.db_storage import DatabaseStorageService
+# Import the NEW Schema
+from .models import FamilyTree, TreeAccess, Location, Person, FamilyGroup, ChildLink, Event, Fact
 from .services.gedcom_service import GedcomImportService
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def get_user_for_request(request):
+    """Temporary auth helper"""
     if request.user.is_authenticated:
         return request.user
     user, _ = User.objects.get_or_create(username='testuser')
     return user
 
+def get_or_create_default_tree(user):
+    """Bridges the gap until the UI supports selecting multiple trees."""
+    access = TreeAccess.objects.filter(user=user, role='owner').first()
+    if access:
+        return access.tree
+    tree = FamilyTree.objects.create(name=f"{user.username}'s Family Tree")
+    TreeAccess.objects.create(user=user, tree=tree, role='owner')
+    return tree
 
-def _serialize_ancestor(ancestor):
-    facts = [{'id': f.id, 'key': f.key, 'value': f.value} for f in ancestor.facts.all()]
-    photos = [
-        {'url': tag.media.file.url, 'title': tag.media.title,
-         'box_x': tag.box_x, 'box_y': tag.box_y}
-        for tag in ancestor.media_tags.all()
-    ]
+def _serialize_person(person):
+    """
+    Transforms the relational SQL structure into the flat node format
+    expected by the React family-chart (f3) visualizer.
+    """
+    facts = [{'id': f.id, 'key': f.key, 'value': f.value} for f in person.facts.all()]
     
-    # Safely gather all children whether this ancestor is the father or the mother
-    children_ids = list(ancestor.children_as_father.values_list('unique_id', flat=True)) + \
-                   list(ancestor.children_as_mother.values_list('unique_id', flat=True))
+    # Resolve Spouses
+    spouse_ids = []
+    for fam in person.families_as_husband.select_related('wife'):
+        if fam.wife: spouse_ids.append(str(fam.wife.id))
+    for fam in person.families_as_wife.select_related('husband'):
+        if fam.husband: spouse_ids.append(str(fam.husband.id))
+        
+    # Resolve Parents
+    father_id = mother_id = None
+    parent_link = person.parent_family_links.select_related('family__husband', 'family__wife').first()
+    if parent_link:
+        if parent_link.family.husband: father_id = str(parent_link.family.husband.id)
+        if parent_link.family.wife: mother_id = str(parent_link.family.wife.id)
+        
+    # Resolve Children
+    child_ids = []
+    for fam in person.families_as_husband.prefetch_related('children_links__child'):
+        child_ids.extend([str(link.child.id) for link in fam.children_links.all()])
+    for fam in person.families_as_wife.prefetch_related('children_links__child'):
+        child_ids.extend([str(link.child.id) for link in fam.children_links.all()])
+
+    full_name = f"{person.first_name} {person.last_name}".strip()
+
+    # Find birth/death events for quick data
+    birth = person.events.filter(event_type='BIRT').select_related('location').first()
+    death = person.events.filter(event_type='DEAT').select_related('location').first()
 
     return {
-        'id':                ancestor.unique_id,
-        'name':              ancestor.name,
-        'relation':          ancestor.relation,
-        'gender':            ancestor.gender,
-        'birth_year':        ancestor.birth_year,
-        'birth_date':        ancestor.birth_date.isoformat() if ancestor.birth_date else None,
-        'death_year':        ancestor.death_year,
-        'death_date':        ancestor.death_date.isoformat() if ancestor.death_date else None,
-        'origin':            ancestor.origin,
-        'birth_location':    ancestor.birth_location.name if ancestor.birth_location else None,
-        'birth_location_id': ancestor.birth_location.id if ancestor.birth_location else None,
-        'source_type':       ancestor.source_type,
+        'id':                str(person.id),
+        'name':              full_name or "Unknown",
+        'first_name':        person.first_name,
+        'last_name':         person.last_name,
+        'gender':            person.gender,
+        'birth_year':        person.birth_year,
+        'birth_date':        birth.parsed_date.isoformat() if birth and birth.parsed_date else None,
+        'death_year':        person.death_year,
+        'death_date':        death.parsed_date.isoformat() if death and death.parsed_date else None,
+        'birth_location':    birth.location.name if birth and birth.location else None,
         'facts':             facts,
-        'photos':            photos,
-        'father_id':         ancestor.father.unique_id if ancestor.father else None,
-        'mother_id':         ancestor.mother.unique_id if ancestor.mother else None,
-        'spouse_ids':        list(ancestor.spouses.values_list('unique_id', flat=True)),
-        'child_ids':         children_ids,
+        
+        # Extracted Relational Links for f3 chart
+        'father_id':         father_id,
+        'mother_id':         mother_id,
+        'spouse_ids':        list(set(spouse_ids)),
+        'child_ids':         list(set(child_ids)),
     }
-
 
 def _resolve_location(location_name):
     if not location_name or not location_name.strip():
         return None
-    loc, _ = HeritageLocation.objects.get_or_create(
-        name=location_name.strip(),
-        defaults={'location_type': 'other'}
-    )
+    loc, _ = Location.objects.get_or_create(name=location_name.strip())
     return loc
-
-
-def _find_duplicate_candidates(user, name, birth_year=None, threshold=0.82):
-    candidates = []
-    for anc in Ancestor.objects.filter(user=user).only('unique_id', 'name', 'birth_year', 'relation'):
-        score = SequenceMatcher(None, name.lower().strip(), anc.name.lower().strip()).ratio()
-        if score >= threshold:
-            candidates.append({
-                'id':         anc.unique_id,
-                'name':       anc.name,
-                'birth_year': anc.birth_year,
-                'relation':   anc.relation,
-                'score':      round(score, 2),
-            })
-    return sorted(candidates, key=lambda x: x['score'], reverse=True)
-
 
 # ---------------------------------------------------------------------------
 # Data retrieval
 # ---------------------------------------------------------------------------
 
 @csrf_exempt
-def get_heritage_data(request):
-    if request.method == 'GET':
-        try:
-            user = get_user_for_request(request)
-            storage = DatabaseStorageService(user)
-            return JsonResponse(storage.get_all_heritage_data(), status=200)
-        except Exception as e:
-            traceback.print_exc()
-            return JsonResponse({'error': str(e)}, status=500)
-    return JsonResponse({'error': 'Invalid request method'}, status=405)
-
-
-@csrf_exempt
 def get_family_tree(request):
+    """Provides data formatted for the f3 React Chart"""
     if request.method == 'GET':
         try:
             user = get_user_for_request(request)
-            ancestors = Ancestor.objects.filter(user=user).prefetch_related('facts', 'media_tags__media')
+            tree = get_or_create_default_tree(user)
+            people = Person.objects.filter(tree=tree).prefetch_related(
+                'facts', 'events__location',
+                'families_as_husband__wife', 'families_as_wife__husband',
+                'families_as_husband__children_links__child', 
+                'families_as_wife__children_links__child',
+                'parent_family_links__family__husband', 'parent_family_links__family__wife'
+            )
             return JsonResponse({
-                'tree':            [_serialize_ancestor(a) for a in ancestors],
-                'total_ancestors': ancestors.count(),
+                'tree': [_serialize_person(p) for p in people],
+                'total_ancestors': people.count(),
             }, status=200)
         except Exception as e:
             traceback.print_exc()
@@ -125,46 +129,43 @@ def get_timeline_data(request):
     if request.method == 'GET':
         try:
             user = get_user_for_request(request)
-            ancestors = (
-                Ancestor.objects
-                .filter(user=user)
-                .exclude(birth_year__isnull=True)
-                .prefetch_related('events__event')
-            )
+            tree = get_or_create_default_tree(user)
+            
+            # Fetch all events on this tree ordered by parsed date/string
+            events = Event.objects.filter(tree=tree).select_related('person', 'family', 'location')
+            
             timeline_events = []
-            for anc in ancestors:
-                timeline_events.append({
-                    'id':          f"{anc.unique_id}_birth",
-                    'year':        anc.birth_year,
-                    'date':        anc.birth_date.isoformat() if anc.birth_date else None,
-                    'title':       f"Birth of {anc.name}",
-                    'description': f"Born in {anc.birth_location.name if anc.birth_location else anc.origin or 'Unknown'}",
-                    'type':        'birth',
-                    'person_id':   anc.unique_id,
-                })
-                if anc.death_year:
+            for evt in events:
+                # We need a display name. If it's a person event, use person name. 
+                # If family event (marriage), combine names.
+                title = evt.event_type
+                desc = ""
+                year = evt.parsed_date.year if evt.parsed_date else None
+
+                if evt.person:
+                    person_name = f"{evt.person.first_name} {evt.person.last_name}".strip()
+                    title = f"{evt.event_type} of {person_name}"
+                    if evt.location: desc = f"In {evt.location.name}"
+                elif evt.family:
+                    h_name = f"{evt.family.husband.first_name}" if evt.family.husband else "Unknown"
+                    w_name = f"{evt.family.wife.first_name}" if evt.family.wife else "Unknown"
+                    title = f"{evt.event_type} of {h_name} & {w_name}"
+                    if evt.location: desc = f"In {evt.location.name}"
+
+                # Only include events with dates in the timeline
+                if evt.date_string or evt.parsed_date:
                     timeline_events.append({
-                        'id':        f"{anc.unique_id}_death",
-                        'year':      anc.death_year,
-                        'date':      anc.death_date.isoformat() if anc.death_date else None,
-                        'title':     f"Passing of {anc.name}",
-                        'type':      'death',
-                        'person_id': anc.unique_id,
-                    })
-                for participation in anc.events.all():
-                    evt = participation.event
-                    timeline_events.append({
-                        'id':          f"evt_{evt.id}_{anc.id}",
-                        'year':        evt.date_start.year if evt.date_start else None,
-                        'date':        evt.date_start.isoformat() if evt.date_start else None,
-                        'title':       evt.title,
-                        'description': f"{anc.name} was a {participation.role}",
-                        'type':        'event',
-                        'person_id':   anc.unique_id,
+                        'id':          f"evt_{evt.id}",
+                        'year':        year,
+                        'date':        evt.parsed_date.isoformat() if evt.parsed_date else evt.date_string,
+                        'title':       title,
+                        'description': desc,
+                        'type':        evt.event_type.lower(),
+                        'person_id':   str(evt.person.id) if evt.person else None,
                     })
 
             def sort_key(x):
-                if x['date']: return x['date']
+                if x['date']: return str(x['date'])
                 if x['year']: return f"{x['year']}-01-01"
                 return "0000-00-00"
 
@@ -174,6 +175,7 @@ def get_timeline_data(request):
             traceback.print_exc()
             return JsonResponse({'error': str(e)}, status=500)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
+
 
 # ---------------------------------------------------------------------------
 # GEDCOM import & export
@@ -188,35 +190,32 @@ def upload_gedcom(request):
             fs = FileSystemStorage()
             filename = fs.save(gedcom_file.name, gedcom_file)
             file_path = fs.path(filename)
+            
             importer = GedcomImportService(user)
-            batch = importer.process_gedcom_file(file_path, gedcom_file.name)
+            # This now creates the new tree and relational links
+            tree = importer.process_gedcom_file(file_path, gedcom_file.name)
+            
             os.remove(file_path)
-            return JsonResponse({'success': True, 'message': f'Successfully processed {batch.filename}'}, status=200)
+            return JsonResponse({'success': True, 'message': f'Successfully imported {tree.name}'}, status=200)
         except Exception as e:
             traceback.print_exc()
             return JsonResponse({'error': str(e)}, status=500)
     return JsonResponse({'error': 'No file uploaded'}, status=400)
 
 
-# --- ADD THIS NEW FUNCTION BELOW UPLOAD_GEDCOM ---
-from .services.gedcom_service import GedcomExportService
-
 @csrf_exempt
 def export_gedcom(request):
-    """Generates a .ged file from the user's AWS RDS data"""
     if request.method == 'GET':
         try:
             user = get_user_for_request(request)
-            export_service = GedcomExportService(user)
+            tree = get_or_create_default_tree(user)
+            
+            export_service = GedcomExportService(user, tree.id)
             gedcom_string = export_service.generate_gedcom()
             
-            # Format the HTTP Response to force a file download
             response = HttpResponse(gedcom_string, content_type='text/plain')
-            
-            # Generate a dynamic filename based on the date
             filename = f"VikingRoots_{user.username}_{datetime.now().strftime('%Y%m%d')}.ged"
             response['Content-Disposition'] = f'attachment; filename="{filename}"'
-            
             return response
             
         except Exception as e:
@@ -226,30 +225,19 @@ def export_gedcom(request):
 
 
 # ---------------------------------------------------------------------------
-# Locations  (NEW)
+# Locations 
 # ---------------------------------------------------------------------------
 
 @csrf_exempt
 def locations(request):
-    """
-    GET  /heritage/locations/?search=Gimli  — typeahead search.
-    POST /heritage/locations/               — create a location explicitly.
-    """
     if request.method == 'GET':
         query = request.GET.get('search', '').strip()
-        qs = HeritageLocation.objects.all()
+        qs = Location.objects.all()
         if query:
-            qs = qs.filter(name__icontains=query) | qs.filter(original_name__icontains=query)
+            qs = qs.filter(name__icontains=query)
         return JsonResponse({
             'locations': [
-                {
-                    'id':            loc.id,
-                    'name':          loc.name,
-                    'original_name': loc.original_name,
-                    'location_type': loc.location_type,
-                    'latitude':      loc.latitude,
-                    'longitude':     loc.longitude,
-                }
+                {'id': loc.id, 'name': loc.name, 'latitude': loc.latitude, 'longitude': loc.longitude}
                 for loc in qs[:20]
             ]
         }, status=200)
@@ -258,152 +246,90 @@ def locations(request):
         try:
             data = json.loads(request.body)
             name = data.get('name', '').strip()
-            if not name:
-                return JsonResponse({'error': 'name is required'}, status=400)
-            loc, created = HeritageLocation.objects.get_or_create(
+            if not name: return JsonResponse({'error': 'name is required'}, status=400)
+            
+            loc, created = Location.objects.get_or_create(
                 name=name,
-                defaults={
-                    'original_name': data.get('original_name', ''),
-                    'location_type': data.get('location_type', 'other'),
-                    'latitude':      data.get('latitude'),
-                    'longitude':     data.get('longitude'),
-                }
+                defaults={'latitude': data.get('latitude'), 'longitude': data.get('longitude')}
             )
-            return JsonResponse({'id': loc.id, 'name': loc.name, 'created': created},
-                                status=201 if created else 200)
+            return JsonResponse({'id': loc.id, 'name': loc.name, 'created': created}, status=201 if created else 200)
         except Exception as e:
             traceback.print_exc()
             return JsonResponse({'error': str(e)}, status=500)
-
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 
 # ---------------------------------------------------------------------------
-# Ancestor CRUD
+# Person CRUD (Manual Entry)
 # ---------------------------------------------------------------------------
 
 @csrf_exempt
 def check_duplicates(request):
-    """
-    GET /heritage/ancestors/check-duplicates/?name=Bjorn&birth_year=1890
-    """
     if request.method == 'GET':
         user = get_user_for_request(request)
+        tree = get_or_create_default_tree(user)
         name = request.GET.get('name', '').strip()
-        if not name:
-            return JsonResponse({'duplicates': []}, status=200)
-        birth_year = request.GET.get('birth_year')
-        try:
-            birth_year = int(birth_year) if birth_year else None
-        except ValueError:
-            birth_year = None
-        return JsonResponse({'duplicates': _find_duplicate_candidates(user, name, birth_year)}, status=200)
+        if not name: return JsonResponse({'duplicates': []}, status=200)
+        
+        candidates = []
+        for person in Person.objects.filter(tree=tree, first_name__icontains=name.split()[0]):
+            full_name = f"{person.first_name} {person.last_name}".strip()
+            score = SequenceMatcher(None, name.lower(), full_name.lower()).ratio()
+            if score >= 0.82:
+                candidates.append({
+                    'id': str(person.id), 'name': full_name,
+                    'birth_year': person.birth_year, 'score': round(score, 2),
+                })
+        return JsonResponse({'duplicates': sorted(candidates, key=lambda x: x['score'], reverse=True)}, status=200)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 
 @csrf_exempt
 def create_ancestor(request):
-    """
-    POST /heritage/ancestors/
-
-    Accepted fields:
-        name, relation, gender
-        birth_year, birth_date (YYYY-MM-DD)
-        death_year, death_date (YYYY-MM-DD)
-        birth_location_name   string — get_or_creates a HeritageLocation
-        birth_location_id     int    — uses an existing HeritageLocation
-        origin                legacy plain-text fallback
-        facts                 list of {key, value}
-        force                 bool — skip duplicate warning
-    """
-    if request.method != 'POST':
-        return JsonResponse({'error': 'Invalid request method'}, status=405)
+    if request.method != 'POST': return JsonResponse({'error': 'Invalid request method'}, status=405)
     try:
         user = get_user_for_request(request)
+        tree = get_or_create_default_tree(user)
         data = json.loads(request.body)
 
-        name       = data.get('name', 'Unknown Ancestor').strip()
+        name = data.get('name', 'Unknown Ancestor').strip()
+        parts = name.split(' ', 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else ""
+        
         birth_year = data.get('birth_year')
-        force      = data.get('force', False)
 
-        if not force:
-            try:
-                by = int(birth_year) if birth_year else None
-            except (ValueError, TypeError):
-                by = None
-            candidates = _find_duplicate_candidates(user, name, by)
-            if candidates:
-                return JsonResponse({
-                    'warning':    'Possible duplicates found. Send with force=true to create anyway.',
-                    'duplicates': candidates,
-                }, status=409)
-
-        location = None
-        if data.get('birth_location_id'):
-            try:
-                location = HeritageLocation.objects.get(pk=data['birth_location_id'])
-            except HeritageLocation.DoesNotExist:
-                pass
-        elif data.get('birth_location_name'):
-            location = _resolve_location(data['birth_location_name'])
-
-        birth_date = None
-        if data.get('birth_date'):
-            try:
-                birth_date = datetime.strptime(data['birth_date'], '%Y-%m-%d').date()
-                if not birth_year:
-                    birth_year = birth_date.year
-            except ValueError:
-                pass
-
-        death_date = None
-        if data.get('death_date'):
-            try:
-                death_date = datetime.strptime(data['death_date'], '%Y-%m-%d').date()
-            except ValueError:
-                pass
-
-        unique_id = data.get('id') or f"manual_{uuid.uuid4().hex[:8]}"
-        ancestor = Ancestor.objects.create(
-            user=user,
-            unique_id=unique_id,
-            name=name,
-            relation=data.get('relation', ''),
-            gender=data.get('gender', ''),
-            birth_year=birth_year,
-            birth_date=birth_date,
-            death_year=data.get('death_year'),
-            death_date=death_date,
-            origin=data.get('origin') or '',
-            birth_location=location,
-            source_type='manual',
+        person = Person.objects.create(
+            tree=tree,
+            first_name=first_name,
+            last_name=last_name,
+            gender=data.get('gender', 'U'),
+            birth_year=int(birth_year) if birth_year else None,
+            death_year=int(data.get('death_year')) if data.get('death_year') else None,
         )
 
         for fact in data.get('facts', []):
-            key   = fact.get('key', '').strip()
-            value = fact.get('value', '').strip()
-            if key and value:
-                AncestorFact.objects.create(ancestor=ancestor, key=key, value=value)
+            if fact.get('key') and fact.get('value'):
+                Fact.objects.create(person=person, key=fact['key'], value=fact['value'])
 
-        if birth_date or birth_year:
-            evt, _ = HeritageEvent.objects.get_or_create(
-                title=f"Birth of {ancestor.name}",
-                date_start=birth_date,
-                defaults={'location': location, 'event_type': 'personal'}
-            )
-            EventParticipation.objects.get_or_create(
-                event=evt, ancestor=ancestor, defaults={'role': 'Principal'}
+        location = _resolve_location(data.get('birth_location_name'))
+        birth_date = None
+        if data.get('birth_date'):
+            try: birth_date = datetime.strptime(data['birth_date'], '%Y-%m-%d').date()
+            except ValueError: pass
+
+        if birth_date or birth_year or location:
+            Event.objects.create(
+                tree=tree, person=person, event_type='BIRT',
+                date_string=data.get('birth_date') or str(birth_year or ''),
+                parsed_date=birth_date, location=location
             )
 
         return JsonResponse({
-            'success':  True,
-            'ancestor': _serialize_ancestor(
-                Ancestor.objects.prefetch_related('facts', 'media_tags__media').get(pk=ancestor.pk)
-            ),
+            'success': True,
+            'ancestor': _serialize_person(person),
         }, status=201)
 
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON'}, status=400)
     except Exception as e:
         traceback.print_exc()
         return JsonResponse({'error': str(e)}, status=500)
@@ -411,131 +337,81 @@ def create_ancestor(request):
 
 @csrf_exempt
 def manage_ancestor(request, ancestor_id):
-    """
-    GET    /heritage/ancestors/<id>/
-    PUT    /heritage/ancestors/<id>/
-    DELETE /heritage/ancestors/<id>/
-    """
     user = get_user_for_request(request)
+    tree = get_or_create_default_tree(user)
     try:
-        ancestor = (
-            Ancestor.objects
-            .prefetch_related('facts', 'media_tags__media')
-            .get(user=user, unique_id=ancestor_id)
-        )
-    except Ancestor.DoesNotExist:
-        return JsonResponse({'error': 'Ancestor not found'}, status=404)
+        person = Person.objects.get(id=ancestor_id, tree=tree)
+    except (Person.DoesNotExist, ValueError):
+        return JsonResponse({'error': 'Person not found'}, status=404)
 
     if request.method == 'GET':
-        return JsonResponse({'ancestor': _serialize_ancestor(ancestor)}, status=200)
+        return JsonResponse({'ancestor': _serialize_person(person)}, status=200)
 
     if request.method == 'PUT':
         try:
             data = json.loads(request.body)
-            if 'name'       in data: ancestor.name       = data['name']
-            if 'relation'   in data: ancestor.relation   = data['relation']
-            if 'gender'     in data: ancestor.gender     = data['gender']
-            if 'birth_year' in data: ancestor.birth_year = data['birth_year']
-            if 'death_year' in data: ancestor.death_year = data['death_year']
-            if 'origin'     in data: ancestor.origin     = data['origin'] or ''
+            if 'name' in data:
+                parts = data['name'].strip().split(' ', 1)
+                person.first_name = parts[0]
+                person.last_name = parts[1] if len(parts) > 1 else ""
+            if 'gender' in data: person.gender = data['gender']
+            if 'birth_year' in data: person.birth_year = data['birth_year']
+            if 'death_year' in data: person.death_year = data['death_year']
+            person.save()
 
-            if 'birth_date' in data:
-                try:
-                    ancestor.birth_date = datetime.strptime(data['birth_date'], '%Y-%m-%d').date()
-                except ValueError:
-                    ancestor.birth_date = None
-
-            if 'death_date' in data:
-                try:
-                    ancestor.death_date = datetime.strptime(data['death_date'], '%Y-%m-%d').date()
-                except ValueError:
-                    ancestor.death_date = None
-
-            if 'birth_location_id' in data:
-                try:
-                    ancestor.birth_location = HeritageLocation.objects.get(pk=data['birth_location_id'])
-                except HeritageLocation.DoesNotExist:
-                    pass
-            elif 'birth_location_name' in data:
-                ancestor.birth_location = _resolve_location(data['birth_location_name'])
-
-            ancestor.save()
-            return JsonResponse({
-                'success':  True,
-                'ancestor': _serialize_ancestor(
-                    Ancestor.objects.prefetch_related('facts', 'media_tags__media').get(pk=ancestor.pk)
-                ),
-            }, status=200)
+            return JsonResponse({'success': True, 'ancestor': _serialize_person(person)}, status=200)
         except Exception as e:
             traceback.print_exc()
             return JsonResponse({'error': str(e)}, status=500)
 
     if request.method == 'DELETE':
-        ancestor.delete()
-        return JsonResponse({'success': True, 'message': 'Ancestor deleted'}, status=200)
+        person.delete()
+        return JsonResponse({'success': True, 'message': 'Person deleted'}, status=200)
 
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
-
-# ---------------------------------------------------------------------------
-# Ancestor Facts  (NEW)
-# ---------------------------------------------------------------------------
 
 @csrf_exempt
 def manage_ancestor_facts(request, ancestor_id):
-    """
-    GET  /heritage/ancestors/<id>/facts/
-    POST /heritage/ancestors/<id>/facts/
-    """
     user = get_user_for_request(request)
+    tree = get_or_create_default_tree(user)
     try:
-        ancestor = Ancestor.objects.get(user=user, unique_id=ancestor_id)
-    except Ancestor.DoesNotExist:
-        return JsonResponse({'error': 'Ancestor not found'}, status=404)
+        person = Person.objects.get(id=ancestor_id, tree=tree)
+    except (Person.DoesNotExist, ValueError):
+        return JsonResponse({'error': 'Person not found'}, status=404)
 
     if request.method == 'GET':
-        facts = [
-            {'id': f.id, 'key': f.key, 'value': f.value}
-            for f in ancestor.facts.all()
-        ]
-        return JsonResponse({'facts': facts}, status=200)
+        return JsonResponse({'facts': [{'id': f.id, 'key': f.key, 'value': f.value} for f in person.facts.all()]}, status=200)
 
     if request.method == 'POST':
         try:
-            data  = json.loads(request.body)
-            key   = data.get('key', '').strip()
-            value = data.get('value', '').strip()
-            if not key or not value:
-                return JsonResponse({'error': 'Both key and value are required'}, status=400)
-            fact = AncestorFact.objects.create(ancestor=ancestor, key=key, value=value)
-            return JsonResponse({
-                'success': True,
-                'fact': {'id': fact.id, 'key': fact.key, 'value': fact.value},
-            }, status=201)
+            data = json.loads(request.body)
+            if not data.get('key') or not data.get('value'):
+                return JsonResponse({'error': 'Both key and value required'}, status=400)
+            fact = Fact.objects.create(person=person, key=data['key'].strip(), value=data['value'].strip())
+            return JsonResponse({'success': True, 'fact': {'id': fact.id, 'key': fact.key, 'value': fact.value}}, status=201)
         except Exception as e:
-            traceback.print_exc()
             return JsonResponse({'error': str(e)}, status=500)
-
     return JsonResponse({'error': 'Invalid request method'}, status=405)
-
 
 @csrf_exempt
 def manage_single_fact(request, ancestor_id, fact_id):
     """
-    PUT    /heritage/ancestors/<id>/facts/<fact_id>/
-    DELETE /heritage/ancestors/<id>/facts/<fact_id>/
+    PUT    /heritage/ancestor/<id>/facts/<fact_id>/
+    DELETE /heritage/ancestor/<id>/facts/<fact_id>/
     """
     user = get_user_for_request(request)
+    tree = get_or_create_default_tree(user)
     try:
-        ancestor = Ancestor.objects.get(user=user, unique_id=ancestor_id)
-        fact     = AncestorFact.objects.get(pk=fact_id, ancestor=ancestor)
-    except (Ancestor.DoesNotExist, AncestorFact.DoesNotExist):
+        person = Person.objects.get(id=ancestor_id, tree=tree)
+        fact = Fact.objects.get(pk=fact_id, person=person)
+    except (Person.DoesNotExist, Fact.DoesNotExist):
         return JsonResponse({'error': 'Not found'}, status=404)
 
     if request.method == 'PUT':
         try:
             data = json.loads(request.body)
-            if 'key'   in data: fact.key   = data['key'].strip()
+            if 'key' in data: fact.key = data['key'].strip()
             if 'value' in data: fact.value = data['value'].strip()
             fact.save()
             return JsonResponse({'success': True, 'fact': {'id': fact.id, 'key': fact.key, 'value': fact.value}})
@@ -551,54 +427,52 @@ def manage_single_fact(request, ancestor_id, fact_id):
 
 
 # ---------------------------------------------------------------------------
-# Ancestor ↔ Event linking  (NEW)
+# Person ↔ Event linking 
 # ---------------------------------------------------------------------------
 
 @csrf_exempt
 def manage_ancestor_events(request, ancestor_id):
     """
-    GET  /heritage/ancestors/<id>/events/
-    POST /heritage/ancestors/<id>/events/   body: { event_id, role? }
+    GET  /heritage/ancestor/<id>/events/
+    POST /heritage/ancestor/<id>/events/
     """
     user = get_user_for_request(request)
+    tree = get_or_create_default_tree(user)
     try:
-        ancestor = Ancestor.objects.get(user=user, unique_id=ancestor_id)
-    except Ancestor.DoesNotExist:
-        return JsonResponse({'error': 'Ancestor not found'}, status=404)
+        person = Person.objects.get(id=ancestor_id, tree=tree)
+    except (Person.DoesNotExist, ValueError):
+        return JsonResponse({'error': 'Person not found'}, status=404)
 
     if request.method == 'GET':
         data = [
             {
-                'participation_id': p.id,
-                'role':             p.role,
-                'event': {
-                    'id':         p.event.id,
-                    'title':      p.event.title,
-                    'date_start': p.event.date_start.isoformat() if p.event.date_start else None,
-                    'event_type': p.event.event_type,
-                    'location':   p.event.location.name if p.event.location else None,
-                }
+                'event_id': evt.id,
+                'event_type': evt.event_type,
+                'date': evt.parsed_date.isoformat() if evt.parsed_date else evt.date_string,
+                'location': evt.location.name if evt.location else None,
             }
-            for p in ancestor.events.select_related('event__location').all()
+            for evt in person.events.select_related('location').all()
         ]
         return JsonResponse({'events': data}, status=200)
 
     if request.method == 'POST':
         try:
-            data     = json.loads(request.body)
-            event_id = data.get('event_id')
-            if not event_id:
-                return JsonResponse({'error': 'event_id is required'}, status=400)
-            event = get_object_or_404(HeritageEvent, pk=event_id)
-            participation, created = EventParticipation.objects.get_or_create(
-                event=event, ancestor=ancestor,
-                defaults={'role': data.get('role', 'Principal')}
+            data = json.loads(request.body)
+            
+            parsed_date = None
+            if data.get('date'):
+                try: parsed_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+                except ValueError: pass
+
+            event = Event.objects.create(
+                tree=tree, 
+                person=person,
+                event_type=data.get('event_type', 'PERS'),
+                date_string=data.get('date_string', data.get('date', '')),
+                parsed_date=parsed_date,
+                location=_resolve_location(data.get('location_name'))
             )
-            return JsonResponse({
-                'success':          True,
-                'created':          created,
-                'participation_id': participation.id,
-            }, status=201 if created else 200)
+            return JsonResponse({'success': True, 'event_id': event.id}, status=201)
         except Exception as e:
             traceback.print_exc()
             return JsonResponse({'error': str(e)}, status=500)
@@ -607,25 +481,33 @@ def manage_ancestor_events(request, ancestor_id):
 
 
 # ---------------------------------------------------------------------------
-# Events
+# Events Edit/Delete
 # ---------------------------------------------------------------------------
 
 @csrf_exempt
 def manage_event(request, event_id):
     user = get_user_for_request(request)
+    tree = get_or_create_default_tree(user)
+    
     try:
-        event = HeritageEvent.objects.get(id=event_id)
-        if not event.participants.filter(ancestor__user=user).exists():
-            return JsonResponse({'error': 'Permission denied'}, status=403)
-    except HeritageEvent.DoesNotExist:
-        return JsonResponse({'error': 'Event not found'}, status=404)
+        event = Event.objects.get(id=event_id, tree=tree)
+    except Event.DoesNotExist:
+        return JsonResponse({'error': 'Event not found or permission denied'}, status=404)
 
     if request.method == 'PUT':
         try:
             data = json.loads(request.body)
-            if 'title'       in data: event.title       = data['title']
-            if 'description' in data: event.description = data['description']
-            if 'event_type'  in data: event.event_type  = data['event_type']
+            if 'event_type' in data: event.event_type = data['event_type']
+            if 'location_name' in data: event.location = _resolve_location(data['location_name'])
+            
+            if 'date' in data:
+                try: 
+                    event.parsed_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+                    event.date_string = data['date']
+                except ValueError: 
+                    event.parsed_date = None
+                    event.date_string = data['date']
+                    
             event.save()
             return JsonResponse({'success': True, 'message': 'Event updated'})
         except Exception as e:
