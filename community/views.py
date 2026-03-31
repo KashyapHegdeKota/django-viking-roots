@@ -5,9 +5,13 @@ from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.contrib.auth.models import User
+from django.db.models import Q
 
 # Import from THIS app
-from .models import AncestorMatch
+from .models import (
+    AncestorMatch, Post, PostLike, Comment,
+    Group, GroupMembership, GroupPost,
+)
 from .services.matching_service import FamilyMatchingService
 
 def get_user_for_request(request):
