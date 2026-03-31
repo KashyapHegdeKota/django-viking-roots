@@ -99,7 +99,21 @@ def login_existing_user(req):
             user = authenticate(req, username=username, password=password)
             if user is not None:
                 login(req, user)
-                return JsonResponse({'message': 'Login successful'})
+                # Check if user has completed their profile
+                try:
+                    profile = UserProfile.objects.get(user=user)
+                    profile_completed = profile.profile_completed
+                    has_profile_picture = profile.has_profile_picture
+                except UserProfile.DoesNotExist:
+                    profile_completed = False
+                    has_profile_picture = False
+
+                return JsonResponse({
+                    'message': 'Login successful',
+                    'username': user.username,
+                    'profile_completed': profile_completed,
+                    'has_profile_picture': has_profile_picture,
+                })
             else:
                 return JsonResponse({'error': 'Invalid credentials'}, status=401)
         
