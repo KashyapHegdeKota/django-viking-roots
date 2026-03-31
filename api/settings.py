@@ -46,8 +46,8 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',  # Must be before CommonMiddleware
+    'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -68,6 +68,8 @@ CORS_ALLOWED_ORIGINS = [
     "https://frontend-viking-roots-ldwi.vercel.app",
     "https://gimlisaga.org",
     "https://www.gimlisaga.org",
+    "http://localhost:5173",       # ← add these two
+    "http://127.0.0.1:5173",  
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -77,6 +79,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://frontend-viking-roots-ldwi.vercel.app",
     "https://gimlisaga.org",
     "https://www.gimlisaga.org",
+    "http://localhost:5173",       # ← same here
+    "http://127.0.0.1:5173",
 ]
 
 ROOT_URLCONF = 'api.urls'
