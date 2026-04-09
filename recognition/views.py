@@ -200,7 +200,7 @@ def lambda_recognition_webhook(request):
 
         post = Post.objects.get(id=post_id)
         uploader = post.author
-        
+        # Get uploader's friends list
         from django.db.models import Q
         from community.models import FamilyConnection
         friends = FamilyConnection.objects.filter(
@@ -210,6 +210,9 @@ def lambda_recognition_webhook(request):
         friend_ids = set()
         for conn in friends:
             friend_ids.add(conn.user1_id if conn.user2_id == uploader.id else conn.user2_id)
+
+        # ALLOW SELF-TAGGING FOR EASIER TESTING
+        friend_ids.add(uploader.id)
 
         suggestions_created = 0
         for match in matches:

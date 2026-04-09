@@ -128,6 +128,111 @@ def get_merged_family_tree(request):
 
 
 # =============================================================================
+# Direct Family Connections (Friendships)
+# =============================================================================
+
+@csrf_exempt
+def list_connections(request):
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+
+    user = request.user
+    from form.models import UserProfile
+
+    def _get_user_info(u):
+        try:
+            profile = UserProfile.objects.get(user=u)
+            pic = profile.profile_picture.url if profile.profile_picture else None
+        except UserProfile.DoesNotExist:
+            pic = None
+        return {'id': u.id, 'username': u.username, 'profile_picture_url': pic}
+
+    try:
+        # Accepted connections
+        accepted = FamilyConnection.objects.filter(
+            Q(user1=user) | Q(user2=user), status='accepted'
+        )
+        friends = []
+        for c in accepted:
+            friend = c.user2 if c.user1 == user else c.user1
+            friends.append(_get_user_info(friend))
+
+        # Pending requests received
+        pending = FamilyConnection.objects.filter(user2=user, status='pending')
+        requests_received = []
+        for c in pending:
+            req_info = _get_user_info(c.user1)
+            req_info['connection_id'] = c.id
+            requests_received.append(req_info)
+
+        return JsonResponse({
+            'friends': friends,
+            'requests_received': requests_received
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return JsonResponse({'error': str(e)}, status=500)
+
+@csrf_exempt
+def send_connection_request(request, user_id):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+
+    if request.user.id == user_id:
+        return JsonResponse({'error': 'Cannot connect with yourself'}, status=400)
+
+    try:
+        target_user = User.objects.get(id=user_id)
+        
+        # Check if connection already exists
+        existing = FamilyConnection.objects.filter(
+            Q(user1=request.user, user2=target_user) | Q(user1=target_user, user2=request.user)
+        ).first()
+
+        if existing:
+            return JsonResponse({'error': f'Connection already exists with status: {existing.status}'}, status=400)
+
+        # Create pending connection
+        FamilyConnection.objects.create(
+            user1=request.user,
+            user2=target_user,
+            connection_type='Friend',
+            confidence_score=1.0,
+            status='pending'
+        )
+        return JsonResponse({'message': 'Connection request sent successfully'}, status=201)
+
+    except User.DoesNotExist:
+        return JsonResponse({'error': 'User not found'}, status=404)
+    except Exception as e:
+        traceback.print_exc()
+        return JsonResponse({'error': str(e)}, status=500)
+
+@csrf_exempt
+def accept_connection_request(request, connection_id):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+
+    try:
+        connection = get_object_or_404(FamilyConnection, id=connection_id, user2=request.user, status='pending')
+        connection.status = 'accepted'
+        connection.save()
+        return JsonResponse({'message': 'Connection request accepted'}, status=200)
+
+    except Exception as e:
+        traceback.print_exc()
+        return JsonResponse({'error': str(e)}, status=500)
+
+# =============================================================================
 # Social Media Views - Posts, Tagging, Likes, Comments
 # =============================================================================
 
