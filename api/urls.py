@@ -27,5 +27,6 @@ urlpatterns = [
     path('api/heritage/', include('heritage.urls')),
     path('api/ai_interview/', include('ai_interview.urls')),
     path('api/community/', include('community.urls')),
+    path('api/recognition/', include('recognition.urls')),
     path("", lambda request: redirect("register")),
 ]
