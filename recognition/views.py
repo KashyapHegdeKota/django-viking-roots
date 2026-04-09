@@ -114,14 +114,17 @@ class LambdaRecognitionWebhook(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        auth_key = request.headers.get('X-Lambda-Auth-Key')
-        if auth_key != settings.LAMBDA_WEBHOOK_KEY:
-            return Response({'error': 'Unauthorized'}, status=401)
-
-        post_id = request.data.get('post_id')
-        matches = request.data.get('matches', [])
-        
         try:
+            auth_key = request.headers.get('X-Lambda-Auth-Key')
+            if auth_key != settings.LAMBDA_WEBHOOK_KEY:
+                print(f"WEBHOOK AUTH FAILED: Expected {settings.LAMBDA_WEBHOOK_KEY}, got {auth_key}")
+                return Response({'error': 'Unauthorized'}, status=401)
+
+            post_id = request.data.get('post_id')
+            matches = request.data.get('matches', [])
+            
+            print(f"WEBHOOK RECEIVED: post_id={post_id}, matches_count={len(matches)}")
+
             post = Post.objects.get(id=post_id)
             uploader = post.author
             
@@ -141,14 +144,19 @@ class LambdaRecognitionWebhook(APIView):
                 suggested_user_id = match.get('user_id')
                 confidence = match.get('confidence')
                 
+                if not suggested_user_id:
+                    continue
+
                 try:
                     target_user = User.objects.get(id=int(suggested_user_id))
                     
                     # Privacy & Friendship Filters
                     privacy_settings, _ = PrivacySettings.objects.get_or_create(user=target_user)
                     if not privacy_settings.face_tagging_enabled:
+                        print(f"SKIP: User {target_user.username} has tagging disabled")
                         continue
                     if target_user.id not in friend_ids:
+                        print(f"SKIP: User {target_user.username} is not friends with uploader")
                         continue
 
                     TagSuggestion.objects.get_or_create(
@@ -163,13 +171,19 @@ class LambdaRecognitionWebhook(APIView):
                         }
                     )
                     suggestions_created += 1
-                except (User.DoesNotExist, PrivacySettings.DoesNotExist, ValueError):
+                except Exception as user_err:
+                    print(f"USER ERROR in match loop: {user_err}")
                     continue
 
             return Response({'status': 'success', 'suggestions_created': suggestions_created})
             
         except Post.DoesNotExist:
+            print(f"WEBHOOK ERROR: Post {post_id} not found")
             return Response({'error': 'Post not found'}, status=404)
+        except Exception as e:
+            print(f"WEBHOOK CRITICAL ERROR: {str(e)}")
+            traceback.print_exc()
+            return Response({'error': str(e)}, status=500)
 
 class PendingTagsView(APIView):
     permission_classes = [IsAuthenticated]
