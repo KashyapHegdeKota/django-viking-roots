@@ -10,7 +10,7 @@ from django.db.models import Q
 # Import from THIS app
 from .models import (
     AncestorMatch, Post, PostLike, Comment,
-    Group, GroupMembership, GroupPost,
+    Group, GroupMembership, GroupPost, FamilyConnection,
 )
 from .services.matching_service import FamilyMatchingService
 from .services.tree_merge_service import FamilyTreeMergeService
