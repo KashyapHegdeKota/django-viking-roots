@@ -66,6 +66,7 @@ CSRF_COOKIE_SECURE = True
 
 CORS_ALLOWED_ORIGINS = [
     "https://frontend-viking-roots-ldwi.vercel.app",
+    "https://frontend-viking-roots-one.vercel.app",
     "https://gimlisaga.org",
     "https://www.gimlisaga.org",
 ]
@@ -75,6 +76,7 @@ CORS_ALLOW_ALL_ORIGINS = DEBUG  # True when DEBUG=True
 
 CSRF_TRUSTED_ORIGINS = [
     "https://frontend-viking-roots-ldwi.vercel.app",
+    "https://frontend-viking-roots-one.vercel.app",
     "https://gimlisaga.org",
     "https://www.gimlisaga.org",
 ]
