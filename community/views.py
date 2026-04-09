@@ -15,6 +15,12 @@ from .models import (
 from .services.matching_service import FamilyMatchingService
 from .services.tree_merge_service import FamilyTreeMergeService
 
+# Recognition task
+try:
+    from recognition.tasks import process_photo_for_tags
+except ImportError:
+    process_photo_for_tags = None
+
 def get_user_for_request(request):
     """Get authenticated user or create test user"""
     if request.user.is_authenticated:
@@ -255,6 +261,31 @@ def create_post(request):
                 return JsonResponse({'error': 'Image too large (max 10MB)'}, status=400)
             post.image = image_file
             post.save()
+            
+            # Trigger AWS Lambda for face recognition
+            try:
+                lambda_client = boto3.client(
+                    'lambda',
+                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                    region_name=settings.AWS_S3_REGION_NAME
+                )
+                
+                payload = {
+                    'post_id': post.id,
+                    'image_url': post.image.url,
+                    'webhook_url': request.build_absolute_uri('/api/recognition/webhook/lambda-recognition/'),
+                    'webhook_key': settings.LAMBDA_WEBHOOK_KEY,
+                    'collection_id': settings.AWS_REKOGNITION_COLLECTION_ID
+                }
+                
+                lambda_client.invoke(
+                    FunctionName=settings.AWS_LAMBDA_FUNCTION_NAME,
+                    InvocationType='Event', # Asynchronous
+                    Payload=json.dumps(payload)
+                )
+            except Exception as e:
+                print(f"Error invoking Lambda: {e}")
 
         # Handle tagged users
         tagged_ids = request.POST.get('tagged_user_ids', '')
