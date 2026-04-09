@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from django.conf import settings
+from django.utils.decorators import method_decorator
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -104,6 +105,7 @@ class DeleteFaceDataView(APIView):
         
         return Response({'message': 'Biometric face data deleted successfully'})
 
+@method_decorator(csrf_exempt, name='dispatch')
 class LambdaRecognitionWebhook(APIView):
     """
     Webhook for AWS Lambda to send back face recognition results.
@@ -161,7 +163,7 @@ class LambdaRecognitionWebhook(APIView):
                         }
                     )
                     suggestions_created += 1
-                except (User.DoesNotExist, PrivacySettings.DoesNotExist):
+                except (User.DoesNotExist, PrivacySettings.DoesNotExist, ValueError):
                     continue
 
             return Response({'status': 'success', 'suggestions_created': suggestions_created})
