@@ -16,6 +16,7 @@ from .models import PrivacySettings, FaceEnrollment, TagSuggestion
 from .services.rekognition import RekognitionService
 from community.models import Post
 
+@method_decorator(csrf_exempt, name='dispatch')
 class PrivacySettingsView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -38,6 +39,7 @@ class PrivacySettingsView(APIView):
         settings_obj.save()
         return Response({'message': 'Privacy settings updated'})
 
+@method_decorator(csrf_exempt, name='dispatch')
 class EnrollFaceView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -73,6 +75,7 @@ class EnrollFaceView(APIView):
         else:
             return Response({'error': 'Could not detect any clear faces in the provided images'}, status=400)
 
+@method_decorator(csrf_exempt, name='dispatch')
 class EnrollmentStatusView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -84,6 +87,7 @@ class EnrollmentStatusView(APIView):
             'last_updated': enrollment.last_updated
         })
 
+@method_decorator(csrf_exempt, name='dispatch')
 class DeleteFaceDataView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -185,6 +189,7 @@ class LambdaRecognitionWebhook(APIView):
             traceback.print_exc()
             return Response({'error': str(e)}, status=500)
 
+@method_decorator(csrf_exempt, name='dispatch')
 class PendingTagsView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -205,6 +210,7 @@ class PendingTagsView(APIView):
         
         return Response({'pending_tags': data})
 
+@method_decorator(csrf_exempt, name='dispatch')
 class ReviewTagView(APIView):
     permission_classes = [IsAuthenticated]
 
