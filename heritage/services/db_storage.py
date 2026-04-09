@@ -29,8 +29,8 @@ class DatabaseStorageService:
     
     @transaction.atomic
     def extract_and_store_tags(self, text):
-        extracted = {"persons": [], "events": [], "facts": [], "user_data": []}
-        pattern = r'\[(PERSON|FACT|DATA|EVENT):([^\]]+)\]'
+        extracted = {"persons": [], "events": [], "facts": [], "user_data": [], "stories": []}
+        pattern = r'\[(PERSON|FACT|DATA|EVENT|STORY):([^\]]+)\]'
         matches = re.findall(pattern, text)
         
         for tag_type, content in matches:
@@ -115,6 +115,26 @@ class DatabaseStorageService:
                             AncestorFact.objects.create(ancestor=anc, key=key, value=value)
                             extracted['facts'].append({'person': person_id, 'key': key})
                         except Ancestor.DoesNotExist: pass
+
+                elif tag_type == "STORY":
+                    ancestor_name = attrs.get('ancestor_name')
+                    content = attrs.get('content')
+                    context = attrs.get('context', '')
+                    
+                    if content:
+                        ancestor = None
+                        if ancestor_name:
+                            # Try to find a matching ancestor for this user
+                            ancestor = Ancestor.objects.filter(user=self.user, name__icontains=ancestor_name).first()
+                        
+                        Story.objects.create(
+                            user=self.user,
+                            ancestor=ancestor,
+                            content=content,
+                            context=context
+                        )
+                        extracted['stories'].append({'ancestor': ancestor_name, 'context': context})
+
             except Exception as e:
                 print(f"Error parsing tag content: '{content}'. Error: {e}")
         

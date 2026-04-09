@@ -113,3 +113,75 @@ def complete_interview(request):
             traceback.print_exc()
             return JsonResponse({'error': str(e)}, status=500)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+# =============================================================================
+# Dynamic Story Prompts & Interviews
+# =============================================================================
+
+@csrf_exempt
+def get_dynamic_prompts(request):
+    """Generate 3 personalized story prompts based on user heritage data"""
+    if request.method == 'GET':
+        try:
+            user = get_user_for_request(request)
+            storage = DatabaseStorageService(user)
+            heritage_data = storage.get_all_heritage_data()
+            
+            service = QuestionaireService()
+            prompts = service.generate_dynamic_prompts(heritage_data)
+            
+            return JsonResponse({'prompts': prompts}, status=200)
+        except Exception as e:
+            traceback.print_exc()
+            return JsonResponse({'error': str(e)}, status=500)
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+@csrf_exempt
+def start_story_interview(request):
+    """Initialize a story interview based on a specific prompt"""
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            prompt = data.get('prompt')
+            if not prompt:
+                return JsonResponse({'error': 'Prompt is required'}, status=400)
+                
+            user = get_user_for_request(request)
+            service = QuestionaireService()
+            
+            # Use Keeper of Tales persona to respond to the prompt
+            ai_response = service.get_response([], f"User has chosen this prompt: '{prompt}'. Start the interview.", mode='story')
+            
+            return JsonResponse({
+                'message': ai_response['message'],
+                'session_id': str(uuid.uuid4())
+            }, status=200)
+        except Exception as e:
+            traceback.print_exc()
+            return JsonResponse({'error': str(e)}, status=500)
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+@csrf_exempt
+def send_story_message(request):
+    """Continue story interview with extraction"""
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            user_message = data.get('message', '').strip()
+            chat_history = data.get('chat_history', [])
+            
+            user = get_user_for_request(request)
+            service = QuestionaireService()
+            ai_response = service.get_response(chat_history, user_message, mode='story')
+            
+            storage = DatabaseStorageService(user)
+            cleaned_text, extracted_data = storage.extract_and_store_tags(ai_response['message'])
+            
+            return JsonResponse({
+                'message': cleaned_text,
+                'extracted_data': extracted_data
+            }, status=200)
+        except Exception as e:
+            traceback.print_exc()
+            return JsonResponse({'error': str(e)}, status=500)
+    return JsonResponse({'error': 'Invalid request method'}, status=405)

@@ -355,7 +355,8 @@ def get_user_profile(req, username=None):
         # Get profile for specified user or current user
         if username:
             try:
-                user = User.objects.get(username=username)
+                # Use iexact for case-insensitive lookup
+                user = User.objects.get(username__iexact=username)
             except User.DoesNotExist:
                 return JsonResponse({'error': 'User not found'}, status=404)
         else:
