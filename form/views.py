@@ -367,6 +367,22 @@ def get_user_profile(req, username=None):
         # Get or create profile
         profile, created = UserProfile.objects.get_or_create(user=user)
 
+        print({
+    'profile': {
+        'id': profile.id,
+        'username': user.username,
+        'email': user.email if user == req.user else None,
+        'full_name': profile.full_name,
+        'profile_picture_url': profile.profile_picture.url if profile.profile_picture else None,
+        'cover_photo_url': profile.cover_photo.url if profile.cover_photo else None,
+        'bio': profile.bio,
+        'location': profile.location,
+        'website': profile.website,
+        'profile_completed': profile.profile_completed,
+        'created_at': profile.created_at.isoformat(),
+    }
+})
+
         return JsonResponse({
             'profile': {
                 'id': profile.id,

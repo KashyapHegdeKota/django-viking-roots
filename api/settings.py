@@ -57,29 +57,28 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
-CORS_ALLOW_CREDENTIALS = True
 
-# Required for cross-origin session cookies (frontend on gimlisaga.org, backend on render.com)
-SESSION_COOKIE_SAMESITE = 'None'
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SAMESITE = 'None'
-CSRF_COOKIE_SECURE = True
+
 
 CORS_ALLOWED_ORIGINS = [
     "https://frontend-viking-roots-ldwi.vercel.app",
     "https://frontend-viking-roots-one.vercel.app",
     "https://gimlisaga.org",
     "https://www.gimlisaga.org",
+    # "http://localhost:5173",   # <-- YOU NEED THIS
+    # "http://127.0.0.1:5173",   # <-- AND THIS
 ]
 
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # True when DEBUG=True
+CORS_ALLOW_ALL_ORIGINS = False  # True when DEBUG=True
 
 CSRF_TRUSTED_ORIGINS = [
     "https://frontend-viking-roots-ldwi.vercel.app",
     "https://frontend-viking-roots-one.vercel.app",
     "https://gimlisaga.org",
     "https://www.gimlisaga.org",
+    # "http://localhost:5173",   # <-- SAME HERE
+    # "http://127.0.0.1:5173",
 ]
 
 ROOT_URLCONF = 'api.urls'
