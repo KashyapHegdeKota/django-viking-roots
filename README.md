@@ -1,123 +1,108 @@
-# Viking Roots – AI-Powered Heritage Storytelling Platform
+# Gimli Saga (Capstone-VikingRoots)
 
-Welcome to the official repository for **Viking Roots**, a Capstone project focused on developing an AI-powered platform for heritage storytelling and cultural preservation. This platform will allow users to generate personalized stories based on their background, inputs, or preferences using natural language generation techniques.
+**GitHub Repository:** [Link to your GitHub repository here]
 
----
+## Project Summary
+**Gimli Saga** is a comprehensive heritage and genealogy platform designed to help users document, explore, and preserve their family history. The standout feature is a custom, privacy-focused, CPU-optimized Face Recognition System that automatically identifies individuals in historical and contemporary photos without relying on expensive third-party APIs.
 
-## 💻 Project Stack
+## Project Checklist
 
-- **Backend:** Django 4
-- **Frontend:** Coming Soon
-- **Database:** SQLite (dev) / PostgreSQL (prod)
-- **Deployment:** Vercel (for API/UI preview)
-- **Automation & Communication:** Monday.com, GitHub, Google Drive
+- [x] A brief summary of the project and its intended use.
+- [x] Installation instructions and technical documentation on how to run any code, and/or versioning of any libraries used to replicate your setup.
+- [x] User guide explaining intended usage.
+- [ ] GitHub repository link provided above.
 
----
+## Installation & Technical Documentation
 
+This project is a monorepo consisting of a Django REST API backend and a React (Vite/TypeScript) Single Page Application frontend.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Fdjango&demo-title=Django%20%2B%20Vercel&demo-description=Use%20Django%204%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fdjango-template.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994241/random/django.png)
+### Prerequisites
+- **Node.js**: v18+ (for frontend)
+- **Python**: v3.8+ (for backend)
+- **Redis**: Required for background task processing (Celery face recognition tasks)
+- **Database**: SQLite (default for local development) or PostgreSQL
 
-# Django + Vercel
+### Backend Setup (Django)
 
-This example shows how to use Django 4 on Vercel with Serverless Functions using the [Python Runtime](https://vercel.com/docs/concepts/functions/serverless-functions/runtimes/python).
+1. **Navigate to the backend directory:**
+   ```bash
+   cd django-viking-roots
+   ```
 
-## Demo
+2. **Create and activate a virtual environment:**
+   ```bash
+   python -m venv venv
+   # On Windows:
+   venv\Scripts\activate
+   # On Mac/Linux:
+   source venv/bin/activate
+   ```
 
-https://django-template.vercel.app/
+3. **Install dependencies:**
+   ```bash
+   # Core dependencies
+   pip install -r requirements.txt
+   
+   # Face recognition specific dependencies
+   pip install -r requirements-face-recognition.txt
+   ```
+   *Key libraries: Django (4.2.15), djangorestframework (3.16.1), Celery (5.4.0), Redis (5.0.8), DeepFace, TensorFlow.*
 
-## How It Works
+4. **Run database migrations:**
+   ```bash
+   python manage.py migrate
+   ```
 
-The Django application, `example`, is configured as an installed application in `api/settings.py`:
+5. **Start the development server:**
+   ```bash
+   python manage.py runserver
+   ```
+   The API backend will be available at `http://localhost:8000`.
 
-```python
-# api/settings.py
-INSTALLED_APPS = [
-    # ...
-    'example',
-]
-```
+6. **Start background workers (in a separate terminal):**
+   This is required for the face recognition and image processing to work.
+   ```bash
+   cd django-viking-roots
+   # Ensure your virtual environment is activated
+   celery -A api worker --loglevel=info
+   ```
+   *(Note: On Windows, you may need to append `--pool=solo` to the command).*
 
-The configuration allows "\*.vercel.app" subdomains in `ALLOWED_HOSTS`, in addition to 127.0.0.1:
+### Frontend Setup (React)
 
-```python
-# api/settings.py
-ALLOWED_HOSTS = ['127.0.0.1', '.vercel.app']
-```
+1. **Navigate to the frontend directory:**
+   ```bash
+   cd frontend-viking-roots
+   ```
 
-The `wsgi` module must use a public variable named `app` to expose the WSGI application:
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+   *Key libraries: React (19.1.1), Vite (7.1.7), TailwindCSS (4.2.0), Radix UI primitives, React Router DOM (7.9.3).*
 
-```python
-# api/wsgi.py
-app = get_wsgi_application()
-```
+3. **Start the development server:**
+   ```bash
+   npm run dev
+   ```
+   The frontend will be available at the local URL provided by Vite (usually `http://localhost:5173`).
 
-The corresponding `WSGI_APPLICATION` setting is configured to use the `app` variable from the `api.wsgi` module:
+## User Guide
 
-```python
-# api/settings.py
-WSGI_APPLICATION = 'api.wsgi.app'
-```
+1. **Creating an Account & Profile:**
+   - Navigate to the local frontend URL.
+   - Register for a new account and fill out your heritage profile.
+   
+2. **Family Connections:**
+   - Add family members and build your family tree using the interactive UI.
+   - Send and accept connection requests to establish a network of relatives.
 
-A single view renders the current time in `example/views.py`:
+3. **Face Recognition & Tagging:**
+   - **Enrollment:** Go to **Settings → Face Recognition** and upload 5 clear photos of your face. The system will extract your facial embeddings.
+   - **Privacy:** Enable "Face Tagging" in your privacy settings and set your preferred scope (e.g., manual approval, friends only).
+   - **Usage:** When you or a connected user uploads a photo to the community feed, the Celery background worker automatically detects faces and compares them to enrolled users.
+   - **Review:** Go to **Settings → Pending Photo Tags** to review, accept, or reject automatically suggested tags on photos.
 
-```python
-# example/views.py
-from datetime import datetime
-
-from django.http import HttpResponse
-
-
-def index(request):
-    now = datetime.now()
-    html = f'''
-    <html>
-        <body>
-            <h1>Hello from Vercel!</h1>
-            <p>The current time is { now }.</p>
-        </body>
-    </html>
-    '''
-    return HttpResponse(html)
-```
-
-This view is exposed via URL through `example/urls.py`:
-
-```python
-# example/urls.py
-from django.urls import path
-
-from example.views import index
-
-
-urlpatterns = [
-    path('', index),
-]
-```
-
-Finally, the view is made accessible to the Django server inside `api/urls.py`:
-
-```python
-# api/urls.py
-from django.urls import path, include
-
-urlpatterns = [
-    ...
-    path('', include('example.urls')),
-]
-```
-
-This example uses the Web Server Gateway Interface (WSGI) with Django to enable handling requests on Vercel with Serverless Functions.
-
-## Running Locally
-
-```bash
-python manage.py runserver
-```
-
-The Django application is now available at `http://localhost:8000`.
-
-## One-Click Deploy
-
-Deploy the example using [Vercel](https://vercel.com?utm_source=github&utm_medium=readme&utm_campaign=vercel-examples):
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Fdjango&demo-title=Django%20%2B%20Vercel&demo-description=Use%20Django%204%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fdjango-template.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994241/random/django.png)
+4. **Community Feed:**
+   - Share historical photos, stories, and updates with your family network.
+   - View tagged individuals in photos seamlessly.
