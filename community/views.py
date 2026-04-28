@@ -305,6 +305,34 @@ def _serialize_comment(comment):
     }
 
 
+def _accepted_connection_user_ids(user):
+    """Return user ids for accepted direct connections plus the current user."""
+
+    connections = FamilyConnection.objects.filter(
+        Q(user1=user) | Q(user2=user),
+        status='accepted',
+    ).values_list('user1_id', 'user2_id')
+
+    user_ids = {user.id}
+    for user1_id, user2_id in connections:
+        user_ids.add(user2_id if user1_id == user.id else user1_id)
+
+    return user_ids
+
+
+def _can_view_post(user, post):
+    if not user.is_authenticated:
+        return False
+
+    if post.author_id == user.id:
+        return True
+
+    return FamilyConnection.objects.filter(
+        Q(user1=user, user2=post.author) | Q(user1=post.author, user2=user),
+        status='accepted',
+    ).exists()
+
+
 @csrf_exempt
 def search_users(request):
     """Search users by username for tagging."""
@@ -369,30 +397,14 @@ def create_post(request):
             post.image = image_file
             post.save()
             
-            # Trigger AWS Lambda for face recognition
+            # Trigger face recognition using Celery task (replaces AWS Lambda)
             try:
-                lambda_client = boto3.client(
-                    'lambda',
-                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                    region_name=settings.AWS_S3_REGION_NAME
-                )
-                
-                payload = {
-                    'post_id': post.id,
-                    'image_url': post.image.url,
-                    'webhook_url': request.build_absolute_uri('/api/recognition/webhook/lambda-recognition/'),
-                    'webhook_key': settings.LAMBDA_WEBHOOK_KEY,
-                    'collection_id': settings.AWS_REKOGNITION_COLLECTION_ID
-                }
-                
-                lambda_client.invoke(
-                    FunctionName=settings.AWS_LAMBDA_FUNCTION_NAME,
-                    InvocationType='Event', # Asynchronous
-                    Payload=json.dumps(payload)
-                )
+                from recognition.tasks import process_photo_for_tags
+                # Queue the task asynchronously
+                process_photo_for_tags.delay(post.id)
+                print(f"Queued face recognition task for post {post.id}")
             except Exception as e:
-                print(f"Error invoking Lambda: {e}")
+                print(f"Error queuing face recognition task: {e}")
 
         # Handle tagged users
         tagged_ids = request.POST.get('tagged_user_ids', '')
@@ -428,9 +440,12 @@ def create_post(request):
 
 @csrf_exempt
 def list_posts(request):
-    """Get the social feed - all posts or filtered."""
+    """Get posts for the current user's feed, profile view, or group."""
     if request.method != 'GET':
         return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
 
     try:
         page = int(request.GET.get('page', 1))
@@ -439,14 +454,32 @@ def list_posts(request):
 
         # Filter options
         user_id = request.GET.get('user_id')
+        username = request.GET.get('username', '').strip()
         group_id = request.GET.get('group_id')
 
         posts = Post.objects.select_related('author').prefetch_related('tagged_users', 'likes', 'comments')
 
-        if user_id:
-            posts = posts.filter(author_id=user_id)
-        elif group_id:
+        if group_id:
+            if not GroupMembership.objects.filter(user=request.user, group_id=group_id, status='active').exists():
+                return JsonResponse({'error': 'You must be a group member to view these posts'}, status=403)
             posts = posts.filter(group_context__group_id=group_id)
+        elif user_id or username:
+            if user_id:
+                try:
+                    requested_user_id = int(user_id)
+                except (TypeError, ValueError):
+                    return JsonResponse({'error': 'Invalid user_id'}, status=400)
+            else:
+                try:
+                    requested_user_id = User.objects.get(username__iexact=username).id
+                except User.DoesNotExist:
+                    return JsonResponse({'error': 'User not found'}, status=404)
+
+            if requested_user_id not in _accepted_connection_user_ids(request.user):
+                return JsonResponse({'error': 'You can only view posts from your accepted connections'}, status=403)
+            posts = posts.filter(author_id=requested_user_id)
+        else:
+            posts = posts.filter(author_id__in=_accepted_connection_user_ids(request.user))
 
         total = posts.count()
         posts = posts[offset:offset + per_page]
@@ -471,8 +504,14 @@ def get_post(request, post_id):
     if request.method != 'GET':
         return JsonResponse({'error': 'Invalid request method'}, status=405)
 
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+
     try:
         post = get_object_or_404(Post, id=post_id)
+        if not _can_view_post(request.user, post):
+            return JsonResponse({'error': 'Permission denied'}, status=403)
+
         current_user = request.user if request.user.is_authenticated else None
         comments = post.comments.select_related('author').all()
 

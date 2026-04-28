@@ -65,8 +65,10 @@ CORS_ALLOWED_ORIGINS = [
     "https://frontend-viking-roots-one.vercel.app",
     "https://gimlisaga.org",
     "https://www.gimlisaga.org",
-    # "http://localhost:5173",   # <-- YOU NEED THIS
-    # "http://127.0.0.1:5173",   # <-- AND THIS
+    "https://vikingroots.com",
+    "https://www.vikingroots.com",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -76,9 +78,11 @@ CSRF_TRUSTED_ORIGINS = [
     "https://frontend-viking-roots-ldwi.vercel.app",
     "https://frontend-viking-roots-one.vercel.app",
     "https://gimlisaga.org",
+    "https://vikingroots.com",
+    "https://www.vikingroots.com",
     "https://www.gimlisaga.org",
-    # "http://localhost:5173",   # <-- SAME HERE
-    # "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
 
 ROOT_URLCONF = 'api.urls'
@@ -140,6 +144,7 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+PASSWORD_RESET_TIMEOUT = int(os.getenv('PASSWORD_RESET_TIMEOUT', 60 * 60))
 
 # Internationalization
 LANGUAGE_CODE = 'en-us'
@@ -184,6 +189,21 @@ AWS_REKOGNITION_COLLECTION_ID = os.getenv('AWS_REKOGNITION_COLLECTION_ID', 'viki
 # AWS Lambda Configuration
 AWS_LAMBDA_FUNCTION_NAME = os.getenv('AWS_LAMBDA_FUNCTION_NAME', 'viking-roots-recognition')
 LAMBDA_WEBHOOK_KEY = os.getenv('LAMBDA_WEBHOOK_KEY', 'your-secure-shared-secret-key')
+
+# Custom Face Recognition Configuration (Replaces AWS Rekognition)
+# Optimized for CPU-only deployment (AWS EC2 without GPU)
+# Model options: Facenet (128-dim, fastest), Facenet512, ArcFace, VGG-Face, OpenFace, Dlib
+FACE_RECOGNITION_MODEL = os.getenv('FACE_RECOGNITION_MODEL', 'Facenet')  # Facenet is faster on CPU
+# Detector options: mtcnn (fast on CPU), opencv (fastest), retinaface (accurate but slower), ssd, dlib
+FACE_DETECTOR_BACKEND = os.getenv('FACE_DETECTOR_BACKEND', 'mtcnn')  # MTCNN is faster on CPU than RetinaFace
+# Similarity threshold (0-100, higher = stricter matching)
+FACE_RECOGNITION_THRESHOLD = float(os.getenv('FACE_RECOGNITION_THRESHOLD', '70.0'))
+
+# TensorFlow CPU optimization
+import os as tf_os
+tf_os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TensorFlow logging
+tf_os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Force CPU usage (no GPU)
+tf_os.environ['TF_ENABLE_ONEDNN_OPTS'] = '1'  # Enable CPU optimizations
 
 # Celery Configuration
 CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
