@@ -9,6 +9,7 @@ from django.conf import settings
 
 from .models import PrivacySettings, FaceEnrollment, TagSuggestion
 from .services.rekognition import RekognitionService
+from .services.face_recognition_service import FaceRecognitionService
 from community.models import Post
 
 def get_user_for_request(request):
@@ -57,29 +58,23 @@ def enroll_face_view(request):
         
         if not images:
             return JsonResponse({'error': 'No images provided'}, status=400)
-            
-        rekognition = RekognitionService()
-        rekognition.create_collection()
         
-        enrollment, _ = FaceEnrollment.objects.get_or_create(user=user)
-        new_face_ids = []
+        # Use custom face recognition service instead of AWS Rekognition
+        face_service = FaceRecognitionService()
         
-        for img in images:
-            image_bytes = img.read()
-            face_records = rekognition.index_faces(user.id, image_bytes)
-            for record in face_records:
-                new_face_ids.append(record['Face']['FaceId'])
-                
-        if new_face_ids:
-            enrollment.is_enrolled = True
-            enrollment.face_ids.extend(new_face_ids)
-            enrollment.save()
+        # Read image bytes
+        image_bytes_list = [img.read() for img in images]
+        
+        # Enroll faces
+        result = face_service.enroll_user_faces(user, image_bytes_list)
+        
+        if result['success']:
             return JsonResponse({
-                'message': f'Successfully enrolled {len(new_face_ids)} face(s)',
-                'face_count': len(enrollment.face_ids)
+                'message': result['message'],
+                'face_count': result['face_count']
             })
         else:
-            return JsonResponse({'error': 'Could not detect any clear faces in the provided images'}, status=400)
+            return JsonResponse({'error': result['message']}, status=400)
             
     except Exception as e:
         traceback.print_exc()
@@ -92,12 +87,9 @@ def enrollment_status_view(request):
         
     try:
         user = get_user_for_request(request)
-        enrollment, _ = FaceEnrollment.objects.get_or_create(user=user)
-        return JsonResponse({
-            'is_enrolled': enrollment.is_enrolled,
-            'face_count': len(enrollment.face_ids),
-            'last_updated': enrollment.last_updated.isoformat() if enrollment.last_updated else None
-        })
+        face_service = FaceRecognitionService()
+        status = face_service.get_enrollment_status(user)
+        return JsonResponse(status)
     except Exception as e:
         traceback.print_exc()
         return JsonResponse({'error': str(e)}, status=500)
@@ -109,16 +101,12 @@ def delete_face_data_view(request):
         
     try:
         user = get_user_for_request(request)
-        enrollment = get_object_or_404(FaceEnrollment, user=user)
-        rekognition = RekognitionService()
+        face_service = FaceRecognitionService()
         
-        if enrollment.face_ids:
-            rekognition.delete_faces(enrollment.face_ids)
-            
-        enrollment.is_enrolled = False
-        enrollment.face_ids = []
-        enrollment.save()
+        # Delete face embeddings
+        face_service.delete_user_enrollment(user)
         
+        # Disable face tagging
         settings_obj, _ = PrivacySettings.objects.get_or_create(user=user)
         settings_obj.face_tagging_enabled = False
         settings_obj.save()

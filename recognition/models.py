@@ -16,10 +16,12 @@ class PrivacySettings(models.Model):
         return f"Privacy for {self.user.username}"
 
 class FaceEnrollment(models.Model):
-    """Tracks if a user has enrolled their face in AWS Rekognition."""
+    """Tracks if a user has enrolled their face using custom embeddings."""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='face_enrollment')
     is_enrolled = models.BooleanField(default=False)
-    face_ids = models.JSONField(default=list)  # Store IDs from AWS Rekognition
+    face_ids = models.JSONField(default=list, help_text='Legacy AWS Rekognition face IDs (deprecated)')
+    embeddings = models.JSONField(default=list, help_text='List of base64-encoded face embeddings')
+    embedding_model = models.CharField(max_length=50, default='Facenet', help_text='Model used to generate embeddings')
     last_updated = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -36,7 +38,7 @@ class TagSuggestion(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='face_tags')
     suggested_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='received_tag_suggestions')
     uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='made_tag_suggestions')
-    aws_face_id = models.CharField(max_length=100)
+    aws_face_id = models.CharField(max_length=100, blank=True, null=True, help_text='Legacy AWS face ID (deprecated)')
     confidence = models.FloatField()
     bounding_box = models.JSONField() # {"Width": ..., "Height": ..., "Left": ..., "Top": ...}
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
