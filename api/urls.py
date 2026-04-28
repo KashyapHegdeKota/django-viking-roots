@@ -28,5 +28,9 @@ urlpatterns = [
     path('api/ai_interview/', include('ai_interview.urls')),
     path('api/community/', include('community.urls')),
     path('api/recognition/', include('recognition.urls')),
+    path('api/admin/users/', form_views.admin_users, name='admin-users'),
+    path('api/admin/users/<int:user_id>/', form_views.admin_user_detail, name='admin-user-detail'),
+    path('api/password-reset/', form_views.password_reset_request, name='password-reset'),
+    path('api/password-reset/confirm/', form_views.password_reset_confirm, name='password-reset-confirm'),
     path("", lambda request: redirect("register")),
 ]

@@ -1,11 +1,15 @@
 import json
 import secrets
+import string
 from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
+from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -14,19 +18,103 @@ from .models import UserOTP, UploadedImage, UserProfile
 
 
 OTP_EXPIRATION_MINUTES = 10
+GENERATED_PASSWORD_LENGTH = 18
+
+
+def _parse_json_body(req):
+    if not req.body:
+        return {}
+
+    try:
+        return json.loads(req.body)
+    except json.JSONDecodeError:
+        return None
+
+
+def _admin_required(req):
+    if not req.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+
+    if not (req.user.is_staff or req.user.is_superuser):
+        return JsonResponse({'error': 'Admin access required'}, status=403)
+
+    return None
+
+
+def _to_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+    return bool(value)
+
+
+def _serialize_user(user: User) -> dict:
+    return {
+        'id': user.id,
+        'username': user.username,
+        'email': user.email,
+        'first_name': user.first_name,
+        'last_name': user.last_name,
+        'is_active': user.is_active,
+        'is_staff': user.is_staff,
+        'is_superuser': user.is_superuser,
+        'date_joined': user.date_joined.isoformat() if user.date_joined else None,
+        'last_login': user.last_login.isoformat() if user.last_login else None,
+    }
+
+
+def _generate_secure_password(length: int = GENERATED_PASSWORD_LENGTH) -> str:
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+"
+
+    while True:
+        password = "".join(secrets.choice(alphabet) for _ in range(length))
+        has_lower = any(char.islower() for char in password)
+        has_upper = any(char.isupper() for char in password)
+        has_digit = any(char.isdigit() for char in password)
+        has_symbol = any(char in "!@#$%^&*()-_=+" for char in password)
+        if has_lower and has_upper and has_digit and has_symbol:
+            return password
+
+
+def _send_welcome_email(user: User, generated_password: str) -> bool:
+    subject = "Welcome to Viking Roots - Your Account Has Been Created"
+    message = (
+        f"Welcome to Viking Roots, {user.username}!\n\n"
+        "An admin created an account for you.\n\n"
+        f"Email: {user.email}\n"
+        f"Temporary password: {generated_password}\n\n"
+        "You can log in with these credentials and update your password after signing in."
+    )
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
+    return send_mail(subject, message, from_email, [user.email], fail_silently=True) > 0
+
+
+def _send_password_reset_email(user: User, token: str) -> bool:
+    timeout_seconds = getattr(settings, "PASSWORD_RESET_TIMEOUT", 60 * 60 * 24 * 3)
+    timeout_minutes = max(1, timeout_seconds // 60)
+    subject = "Your Viking Roots password reset code"
+    message = (
+        f"Hi {user.username},\n\n"
+        "Use this password reset code to choose a new password:\n\n"
+        f"{token}\n\n"
+        f"This code expires in {timeout_minutes} minutes."
+    )
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
+    return send_mail(subject, message, from_email, [user.email], fail_silently=True) > 0
 
 
 def _generate_otp(length: int = 6) -> str:
     return "".join(secrets.choice("0123456789") for _ in range(length))
 
 
-def _send_otp_email(email: str, otp: str) -> None:
+def _send_otp_email(email: str, otp: str) -> bool:
     """Send the OTP to the provided email address."""
 
     subject = "Your Viking Roots verification code"
     message = f"Your verification code is {otp}. It will expire in {OTP_EXPIRATION_MINUTES} minutes."
     from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
-    send_mail(subject, message, from_email, [email], fail_silently=True)
+    return send_mail(subject, message, from_email, [email], fail_silently=True) > 0
 
 
 def _get_or_create_user_otp(user: User) -> UserOTP:
@@ -50,31 +138,58 @@ def _refresh_otp_record(otp_record: UserOTP) -> str:
 @csrf_exempt
 def register_new_user(req):
     if req.method == 'POST':
-        data = json.loads(req.body)
-        username = data.get('username')
-        email = data.get('email')
+        data = _parse_json_body(req)
+        if data is None:
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+        username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
         password = data.get('password')
         confirm_password = data.get('confirm_password')
+
+        if not username or not email or not password:
+            return JsonResponse({'error': 'Username, email, and password are required'}, status=400)
 
         if password != confirm_password:
             return JsonResponse({'error': 'Passwords do not match'}, status=400)
 
+        existing_email_user = User.objects.filter(email__iexact=email).first()
+        if existing_email_user:
+            if not existing_email_user.is_active:
+                otp_record = _get_or_create_user_otp(existing_email_user)
+                otp = _refresh_otp_record(otp_record)
+                otp_email_sent = _send_otp_email(existing_email_user.email, otp)
+
+                return JsonResponse({
+                    'message': 'Account already exists but is not verified. We sent a new OTP.',
+                    'otp_email_sent': otp_email_sent,
+                    'requires_otp': True,
+                }, status=200)
+
+            return JsonResponse({'error': 'Email already registered'}, status=400)
+
         if User.objects.filter(username=username).exists():
             return JsonResponse({'error': 'Username already taken'}, status=400)
 
-        if User.objects.filter(email=email).exists():
-            return JsonResponse({'error': 'Email already registered'}, status=400)
+        candidate_user = User(username=username, email=email)
+        try:
+            validate_password(password, candidate_user)
+        except ValidationError as exc:
+            return JsonResponse({'error': ' '.join(exc.messages)}, status=400)
 
         user = User.objects.create_user(username=username, email=email, password=password)
-        user.is_active = True  # Email verification disabled
+        user.is_active = False
         user.save(update_fields=['is_active'])
 
-        # OTP verification disabled for now
-        # otp_record = _get_or_create_user_otp(user)
-        # otp = _refresh_otp_record(otp_record)
-        # _send_otp_email(email, otp)
+        otp_record = _get_or_create_user_otp(user)
+        otp = _refresh_otp_record(otp_record)
+        otp_email_sent = _send_otp_email(email, otp)
 
-        return JsonResponse({'message': 'User registered successfully. You can now login.'}, status=201)
+        return JsonResponse({
+            'message': 'User registered successfully. Please verify your email.',
+            'otp_email_sent': otp_email_sent,
+            'requires_otp': True,
+        }, status=201)
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 
@@ -92,9 +207,8 @@ def login_existing_user(req):
             except User.DoesNotExist:
                 return JsonResponse({'error': 'Invalid credentials'}, status=401)
 
-            # Email verification disabled for now
-            # if not user.is_active:
-            #     return JsonResponse({'error': 'Email is not verified'}, status=403)
+            if not user.is_active:
+                return JsonResponse({'error': 'Email is not verified. Please verify your email before logging in.'}, status=403)
 
             user = authenticate(req, username=username, password=password)
             if user is not None:
@@ -111,6 +225,10 @@ def login_existing_user(req):
                 return JsonResponse({
                     'message': 'Login successful',
                     'username': user.username,
+                    'email': user.email,
+                    'is_staff': user.is_staff,
+                    'is_superuser': user.is_superuser,
+                    'is_admin': user.is_staff or user.is_superuser,
                     'profile_completed': profile_completed,
                     'has_profile_picture': has_profile_picture,
                 })
@@ -199,9 +317,196 @@ def resend_otp(req):
 
     otp = _refresh_otp_record(otp_record)
 
-    _send_otp_email(email, otp)
+    otp_email_sent = _send_otp_email(email, otp)
 
-    return JsonResponse({'message': 'OTP sent successfully'}, status=200)
+    return JsonResponse({'message': 'OTP sent successfully', 'otp_email_sent': otp_email_sent}, status=200)
+
+
+@csrf_exempt
+def admin_users(req):
+    permission_error = _admin_required(req)
+    if permission_error:
+        return permission_error
+
+    if req.method == 'GET':
+        users = User.objects.all().order_by('id')
+        return JsonResponse({'users': [_serialize_user(user) for user in users]}, status=200)
+
+    if req.method != 'POST':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    data = _parse_json_body(req)
+    if data is None:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    username = data.get('username', '').strip()
+    email = data.get('email', '').strip()
+
+    if not username or not email:
+        return JsonResponse({'error': 'Username and email are required'}, status=400)
+
+    if User.objects.filter(username=username).exists():
+        return JsonResponse({'error': 'Username already taken'}, status=400)
+
+    if User.objects.filter(email__iexact=email).exists():
+        return JsonResponse({'error': 'Email already registered'}, status=400)
+
+    generated_password = _generate_secure_password()
+    user = User.objects.create_user(username=username, email=email, password=generated_password)
+    user.first_name = data.get('first_name', '').strip()
+    user.last_name = data.get('last_name', '').strip()
+
+    if 'is_active' in data:
+        user.is_active = _to_bool(data.get('is_active'))
+
+    if req.user.is_superuser:
+        user.is_staff = _to_bool(data.get('is_staff', False))
+        user.is_superuser = _to_bool(data.get('is_superuser', False))
+
+    user.save()
+    welcome_email_sent = _send_welcome_email(user, generated_password)
+
+    return JsonResponse({
+        'message': 'User created successfully',
+        'user': _serialize_user(user),
+        'welcome_email_sent': welcome_email_sent,
+    }, status=201)
+
+
+@csrf_exempt
+def admin_user_detail(req, user_id):
+    permission_error = _admin_required(req)
+    if permission_error:
+        return permission_error
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return JsonResponse({'error': 'User not found'}, status=404)
+
+    if req.method == 'GET':
+        return JsonResponse({'user': _serialize_user(user)}, status=200)
+
+    if req.method in ('PUT', 'PATCH'):
+        if user.is_superuser and not req.user.is_superuser:
+            return JsonResponse({'error': 'Only superusers can edit superuser accounts'}, status=403)
+
+        data = _parse_json_body(req)
+        if data is None:
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+        if 'username' in data:
+            username = data.get('username', '').strip()
+            if not username:
+                return JsonResponse({'error': 'Username is required'}, status=400)
+            if User.objects.filter(username=username).exclude(id=user.id).exists():
+                return JsonResponse({'error': 'Username already taken'}, status=400)
+            user.username = username
+
+        if 'email' in data:
+            email = data.get('email', '').strip()
+            if not email:
+                return JsonResponse({'error': 'Email is required'}, status=400)
+            if User.objects.filter(email__iexact=email).exclude(id=user.id).exists():
+                return JsonResponse({'error': 'Email already registered'}, status=400)
+            user.email = email
+
+        if 'first_name' in data:
+            user.first_name = data.get('first_name', '').strip()
+        if 'last_name' in data:
+            user.last_name = data.get('last_name', '').strip()
+        if 'is_active' in data:
+            if user.id == req.user.id and not _to_bool(data.get('is_active')):
+                return JsonResponse({'error': 'You cannot deactivate your own account'}, status=400)
+            user.is_active = _to_bool(data.get('is_active'))
+
+        requested_privilege_change = any(field in data for field in ('is_staff', 'is_superuser'))
+        if requested_privilege_change:
+            if not req.user.is_superuser:
+                return JsonResponse({'error': 'Only superusers can change staff or superuser access'}, status=403)
+
+            if user.id == req.user.id and (
+                ('is_staff' in data and not _to_bool(data.get('is_staff'))) or
+                ('is_superuser' in data and not _to_bool(data.get('is_superuser')))
+            ):
+                return JsonResponse({'error': 'You cannot remove your own admin access'}, status=400)
+
+            if 'is_staff' in data:
+                user.is_staff = _to_bool(data.get('is_staff'))
+            if 'is_superuser' in data:
+                user.is_superuser = _to_bool(data.get('is_superuser'))
+
+        user.save()
+        return JsonResponse({
+            'message': 'User updated successfully',
+            'user': _serialize_user(user),
+        }, status=200)
+
+    if req.method == 'DELETE':
+        if user.id == req.user.id:
+            return JsonResponse({'error': 'You cannot delete your own account'}, status=400)
+
+        if user.is_superuser and not req.user.is_superuser:
+            return JsonResponse({'error': 'Only superusers can delete superuser accounts'}, status=403)
+
+        user.delete()
+        return JsonResponse({'message': 'User deleted successfully'}, status=200)
+
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+
+@csrf_exempt
+def password_reset_request(req):
+    if req.method != 'POST':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    data = _parse_json_body(req)
+    if data is None:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    email = data.get('email', '').strip()
+    if not email:
+        return JsonResponse({'error': 'Email is required'}, status=400)
+
+    user = User.objects.filter(email__iexact=email, is_active=True).first()
+    if user:
+        token = default_token_generator.make_token(user)
+        _send_password_reset_email(user, token)
+
+    return JsonResponse({
+        'message': 'If an account exists for that email, a password reset code has been sent.',
+    }, status=200)
+
+
+@csrf_exempt
+def password_reset_confirm(req):
+    if req.method != 'POST':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    data = _parse_json_body(req)
+    if data is None:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    email = data.get('email', '').strip()
+    token = data.get('token', '').strip()
+    new_password = data.get('new_password', '')
+
+    if not email or not token or not new_password:
+        return JsonResponse({'error': 'Email, code, and new password are required'}, status=400)
+
+    user = User.objects.filter(email__iexact=email, is_active=True).first()
+    if not user or not default_token_generator.check_token(user, token):
+        return JsonResponse({'error': 'Invalid or expired password reset code'}, status=400)
+
+    try:
+        validate_password(new_password, user)
+    except ValidationError as exc:
+        return JsonResponse({'error': ' '.join(exc.messages)}, status=400)
+
+    user.set_password(new_password)
+    user.save(update_fields=['password'])
+
+    return JsonResponse({'message': 'Password reset successfully'}, status=200)
 
 
 @csrf_exempt
