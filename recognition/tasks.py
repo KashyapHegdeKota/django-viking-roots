@@ -2,7 +2,7 @@ from celery import shared_task
 from django.contrib.auth.models import User
 from community.models import Post, FamilyConnection
 from .models import PrivacySettings, TagSuggestion
-from .services.rekognition import RekognitionService
+from .services.face_recognition_service import FaceRecognitionService
 import requests
 from django.db.models import Q
 
@@ -25,9 +25,9 @@ def process_photo_for_tags(post_id):
             with post.image.open('rb') as f:
                 image_bytes = f.read()
 
-        # 2. Call AWS Rekognition
-        rekognition = RekognitionService()
-        matches = rekognition.search_faces_by_image(image_bytes)
+        # 2. Call Custom Face Recognition Service
+        face_service = FaceRecognitionService()
+        matches = face_service.search_faces_in_image(image_bytes)
 
         if not matches:
             return f"No face matches found for post {post_id}"
@@ -46,9 +46,8 @@ def process_photo_for_tags(post_id):
             friend_ids.add(conn.user1_id if conn.user2_id == uploader.id else conn.user2_id)
 
         for match in matches:
-            face = match['Face']
-            suggested_user_id = face.get('ExternalImageId')
-            confidence = match.get('Similarity', 0)
+            suggested_user_id = match.get('user_id')
+            confidence = match.get('confidence', 0)
 
             if not suggested_user_id:
                 continue
@@ -73,9 +72,9 @@ def process_photo_for_tags(post_id):
                     suggested_user=target_user,
                     defaults={
                         'uploaded_by': uploader,
-                        'aws_face_id': face['FaceId'],
+                        'aws_face_id': match.get('face_id', ''),
                         'confidence': confidence,
-                        'bounding_box': face['BoundingBox'],
+                        'bounding_box': match.get('bounding_box', {}),
                         'status': 'pending'
                     }
                 )
