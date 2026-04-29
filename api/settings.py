@@ -18,7 +18,18 @@ SECRET_KEY = os.environ.get('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['127.0.0.1', '.vercel.app', 'www.gimlisaga.org', 'gimlisaga.org', '.onrender.com', 'gimlisaga.org', 'www.gimlisaga.org', 'localhost']
+ALLOWED_HOSTS = [
+    '127.0.0.1',
+    'localhost',
+    '.vercel.app',
+    '.onrender.com',
+    '.vikingroots.com',
+    'api.vikingroots.com',
+    'vikingroots.com',
+    'www.vikingroots.com',
+    'gimlisaga.org',
+    'www.gimlisaga.org',
+]
 
 # Add your custom Render domain here when you get it
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
@@ -71,6 +82,10 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
 ]
 
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://([a-z0-9-]+\.)?vikingroots\.com$",
+    r"^https://([a-z0-9-]+\.)?gimlisaga\.org$",
+]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = False  # True when DEBUG=True
 
@@ -78,6 +93,7 @@ CSRF_TRUSTED_ORIGINS = [
     "https://frontend-viking-roots-ldwi.vercel.app",
     "https://frontend-viking-roots-one.vercel.app",
     "https://gimlisaga.org",
+    "https://api.vikingroots.com",
     "https://vikingroots.com",
     "https://www.vikingroots.com",
     "https://www.gimlisaga.org",
@@ -167,17 +183,33 @@ EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
 EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@kashyaphegde.com')
+VIKING_ROOTS_SITE_URL = os.getenv('VIKING_ROOTS_SITE_URL', 'https://vikingroots.com')
+VIKING_ROOTS_LOGIN_URL = os.getenv('VIKING_ROOTS_LOGIN_URL', f"{VIKING_ROOTS_SITE_URL.rstrip('/')}/login")
+VIKING_ROOTS_PASSWORD_SETUP_URL = os.getenv(
+    'VIKING_ROOTS_PASSWORD_SETUP_URL',
+    f"{VIKING_ROOTS_SITE_URL.rstrip('/')}/reset-password",
+)
+WELCOME_FROM_EMAIL = os.getenv('WELCOME_FROM_EMAIL')
+WELCOME_REPLY_TO_EMAIL = os.getenv('WELCOME_REPLY_TO_EMAIL')
+WELCOME_LOGO_PATH = os.getenv(
+    'WELCOME_LOGO_PATH',
+    str(BASE_DIR.parent / 'frontend-viking-roots' / 'public' / 'img' / 'Logo-Transparent.png'),
+)
+WELCOME_LOGO_URL = os.getenv('WELCOME_LOGO_URL', f"{VIKING_ROOTS_SITE_URL.rstrip('/')}/img/Logo-Transparent.png")
 
 # Session Configuration
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SESSION_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'
 SESSION_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_AGE = 86400  # 1 day
+SESSION_COOKIE_DOMAIN = os.getenv('SESSION_COOKIE_DOMAIN', '.vikingroots.com' if not DEBUG else None)
 
 # CSRF Configuration
 CSRF_COOKIE_SAMESITE = 'None' if not DEBUG else 'Lax'
 CSRF_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_DOMAIN = os.getenv('CSRF_COOKIE_DOMAIN', '.vikingroots.com' if not DEBUG else None)
 
 # AWS S3 Configuration for Media Storage
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
