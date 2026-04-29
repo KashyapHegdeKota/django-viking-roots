@@ -1,6 +1,6 @@
 # Gimli Saga (Capstone-VikingRoots)
 
-**GitHub Repository:** [Link to your GitHub repository here]
+**GitHub Repository:** https://github.com/KashyapHegdeKota/django-viking-roots 
 
 ## Project Summary
 **Gimli Saga** is a comprehensive heritage and genealogy platform designed to help users document, explore, and preserve their family history. The standout feature is a custom, privacy-focused, CPU-optimized Face Recognition System that automatically identifies individuals in historical and contemporary photos without relying on expensive third-party APIs.
