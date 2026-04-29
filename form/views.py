@@ -1,14 +1,18 @@
+from email.mime.image import MIMEImage
+from html import escape
 import json
+from pathlib import Path
 import secrets
 import string
 from datetime import timedelta
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives, send_mail
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.utils import timezone
@@ -77,17 +81,157 @@ def _generate_secure_password(length: int = GENERATED_PASSWORD_LENGTH) -> str:
             return password
 
 
-def _send_welcome_email(user: User, generated_password: str) -> bool:
-    subject = "Welcome to Viking Roots - Your Account Has Been Created"
-    message = (
-        f"Welcome to Viking Roots, {user.username}!\n\n"
-        "An admin created an account for you.\n\n"
-        f"Email: {user.email}\n"
-        f"Temporary password: {generated_password}\n\n"
-        "You can log in with these credentials and update your password after signing in."
+def _send_welcome_email(user: User, _generated_password: str) -> bool:
+    site_url = getattr(settings, "VIKING_ROOTS_SITE_URL", "https://vikingroots.com").rstrip("/")
+    password_setup_url = getattr(settings, "VIKING_ROOTS_PASSWORD_SETUP_URL", f"{site_url}/reset-password")
+    invite_token = default_token_generator.make_token(user)
+    invite_query = urlencode({
+        "email": user.email,
+        "token": invite_token,
+        "source": "invite",
+    })
+    invite_separator = "&" if "?" in password_setup_url else "?"
+    invite_url = f"{password_setup_url}{invite_separator}{invite_query}"
+    subject = f"Viking Roots Invitation - {site_url}"
+
+    display_name = user.get_full_name().strip() or user.username
+    current_year = timezone.now().year
+    timeout_seconds = getattr(settings, "PASSWORD_RESET_TIMEOUT", 60 * 60 * 24 * 3)
+    timeout_minutes = max(1, timeout_seconds // 60)
+    default_from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
+    from_email = getattr(settings, "WELCOME_FROM_EMAIL", None) or (
+        f"Team Viking Roots <{default_from_email}>"
+        if default_from_email and "<" not in default_from_email
+        else default_from_email
     )
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
-    return send_mail(subject, message, from_email, [user.email], fail_silently=True) > 0
+    reply_to_email = getattr(settings, "WELCOME_REPLY_TO_EMAIL", None)
+    logo_path = Path(getattr(settings, "WELCOME_LOGO_PATH", ""))
+    logo_url = getattr(settings, "WELCOME_LOGO_URL", f"{site_url}/img/Logo-Transparent.png")
+    logo_content_id = "viking-roots-logo"
+    logo_src = f"cid:{logo_content_id}" if logo_path.is_file() else logo_url
+
+    message = (
+        f"[Viking Roots]({site_url})\n\n"
+        "Welcome to Viking Roots!\n\n"
+        f"Hi {display_name},\n\n"
+        "An administrator has invited you to access Viking Roots. Please use the link below to set your password "
+        "and finish setting up your account.\n\n"
+        f"Email: {user.email}\n\n"
+        f"Accept Invitation: {invite_url}\n\n"
+        f"This link expires in {timeout_minutes} minutes.\n\n"
+        "Thank you,\n\n"
+        "Team Viking Roots\n\n"
+        f"(c) {current_year} Viking Roots. All rights reserved."
+    )
+
+    safe_display_name = escape(display_name)
+    safe_email = escape(user.email)
+    safe_site_url = escape(site_url, quote=True)
+    safe_invite_url = escape(invite_url, quote=True)
+    safe_logo_src = escape(logo_src, quote=True)
+
+    html_message = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>Viking Roots</title>
+<style>
+@media only screen and (max-width: 600px) {{
+  .inner-body, .footer {{
+    width: 100% !important;
+  }}
+}}
+
+@media only screen and (max-width: 500px) {{
+  .button {{
+    width: 100% !important;
+  }}
+}}
+</style>
+</head>
+<body style="box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #ffffff; color: #4a5568; height: 100%; line-height: 1.4; margin: 0; padding: 0; width: 100% !important;">
+<table class="wrapper" width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #edf2f7; margin: 0; padding: 0; width: 100%;">
+<tr>
+<td align="center">
+<table class="content" width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 0; padding: 0; width: 100%;">
+<tr>
+<td class="header" style="padding: 25px 0; text-align: center;">
+<a href="{safe_site_url}" style="color: #2d3748; font-size: 24px; font-weight: 700; text-decoration: none;">
+<img src="{safe_logo_src}" alt="Viking Roots" width="220" style="border: none; display: inline-block; height: auto; max-width: 220px; width: 60%;">
+</a>
+</td>
+</tr>
+<tr>
+<td class="body" width="100%" cellpadding="0" cellspacing="0" style="background-color: #edf2f7; border-bottom: 1px solid #edf2f7; border-top: 1px solid #edf2f7; margin: 0; padding: 0; width: 100%;">
+<table class="inner-body" align="center" width="570" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #ffffff; border-color: #e8e5ef; border-radius: 2px; border-width: 1px; box-shadow: 0 2px 0 rgba(0, 0, 150, 0.025), 2px 4px 0 rgba(0, 0, 150, 0.015); margin: 0 auto; padding: 0; width: 570px;">
+<tr>
+<td class="content-cell" style="max-width: 100vw; padding: 32px;">
+<div style="font-size: 16px;">
+<p style="font-size: 16px; line-height: 1.5em; margin-top: 0; text-align: left;">Welcome to Viking Roots!</p>
+<p style="font-size: 16px; line-height: 1.5em; margin-top: 0; text-align: left;">Hi {safe_display_name},</p>
+<p style="font-size: 16px; line-height: 1.5em; margin-top: 0; text-align: left;">An administrator has invited you to access Viking Roots. Please use the link below to set your password and finish setting up your account.</p>
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; margin: 22px 0;">
+<tr>
+<td style="color: #718096; font-size: 14px; padding: 14px 16px 6px 16px;">Email</td>
+</tr>
+<tr>
+<td style="color: #2d3748; font-size: 16px; font-weight: 600; padding: 0 16px 14px 16px;">{safe_email}</td>
+</tr>
+</table>
+<p style="font-size: 16px; line-height: 1.5em; margin-top: 0; text-align: left;">The setup page will prefill your email so you can choose your own password.</p>
+<table class="action" align="center" width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 30px auto; padding: 0; text-align: center; width: 100%;">
+<tr>
+<td align="center">
+<a href="{safe_invite_url}" class="button button-primary" target="_blank" rel="noopener" style="-webkit-text-size-adjust: none; background-color: #2d3748; border-bottom: 8px solid #2d3748; border-left: 18px solid #2d3748; border-radius: 4px; border-right: 18px solid #2d3748; border-top: 8px solid #2d3748; color: #ffffff; display: inline-block; overflow: hidden; text-decoration: none;">Accept Invitation</a>
+</td>
+</tr>
+</table>
+<p style="color: #718096; font-size: 14px; line-height: 1.5em; margin-top: 0; text-align: left;">This link expires in {timeout_minutes} minutes.</p>
+<p style="font-size: 16px; line-height: 1.5em; margin-top: 0; text-align: left;">Thank you,</p>
+<p style="font-size: 16px; line-height: 1.5em; margin-top: 0; text-align: left;">Team Viking Roots</p>
+</div>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td>
+<table class="footer" align="center" width="570" cellpadding="0" cellspacing="0" role="presentation" style="margin: 0 auto; padding: 0; text-align: center; width: 570px;">
+<tr>
+<td class="content-cell" align="center" style="max-width: 100vw; padding: 32px;">
+<a href="{safe_site_url}" style="color: #2d3748; font-size: 14px; text-decoration: underline;">VikingRoots.com</a>
+<p style="color: #718096; font-size: 12px; line-height: 1.5em; margin-top: 10px; text-align: center;">&copy; {current_year} Viking Roots. All rights reserved.</p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>"""
+
+    email = EmailMultiAlternatives(
+        subject,
+        message,
+        from_email,
+        [user.email],
+        reply_to=[reply_to_email] if reply_to_email else None,
+    )
+    email.attach_alternative(html_message, "text/html")
+    if logo_path.is_file():
+        with logo_path.open("rb") as logo_file:
+            logo = MIMEImage(logo_file.read())
+        logo.add_header("Content-ID", f"<{logo_content_id}>")
+        logo.add_header("Content-Disposition", "inline", filename=logo_path.name)
+        email.attach(logo)
+    return email.send(fail_silently=True) > 0
 
 
 def _send_password_reset_email(user: User, token: str) -> bool:
