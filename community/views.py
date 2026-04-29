@@ -23,20 +23,6 @@ try:
 except ImportError:
     process_photo_for_tags = None
 
-
-def _absolute_file_url(request, file_field):
-    if not file_field:
-        return None
-
-    try:
-        url = file_field.url
-    except ValueError:
-        return None
-
-    if request and url.startswith('/'):
-        return request.build_absolute_uri(url)
-    return url
-
 def get_user_for_request(request):
     """Get authenticated user or create test user"""
     if request.user.is_authenticated:
@@ -252,12 +238,12 @@ def accept_connection_request(request, connection_id):
 # Social Media Views - Posts, Tagging, Likes, Comments
 # =============================================================================
 
-def _serialize_post(post, current_user=None, request=None):
+def _serialize_post(post, current_user=None):
     """Serialize a post for JSON response."""
     from form.models import UserProfile
     try:
         author_profile = UserProfile.objects.get(user=post.author)
-        profile_picture_url = _absolute_file_url(request, author_profile.profile_picture)
+        profile_picture_url = author_profile.profile_picture.url if author_profile.profile_picture else None
     except UserProfile.DoesNotExist:
         profile_picture_url = None
 
@@ -287,7 +273,7 @@ def _serialize_post(post, current_user=None, request=None):
             'profile_picture_url': profile_picture_url,
         },
         'content': post.content,
-        'image_url': _absolute_file_url(request, post.image),
+        'image_url': post.image.url if post.image else None,
         'tagged_users': tagged,
         'like_count': like_count,
         'comment_count': comment_count,
@@ -444,7 +430,7 @@ def create_post(request):
 
         return JsonResponse({
             'message': 'Post created successfully',
-            'post': _serialize_post(post, request.user, request),
+            'post': _serialize_post(post, request.user),
         }, status=201)
 
     except Exception as e:
@@ -501,7 +487,7 @@ def list_posts(request):
         current_user = request.user if request.user.is_authenticated else None
 
         return JsonResponse({
-            'posts': [_serialize_post(p, current_user, request) for p in posts],
+            'posts': [_serialize_post(p, current_user) for p in posts],
             'total': total,
             'page': page,
             'per_page': per_page,
@@ -530,7 +516,7 @@ def get_post(request, post_id):
         comments = post.comments.select_related('author').all()
 
         return JsonResponse({
-            'post': _serialize_post(post, current_user, request),
+            'post': _serialize_post(post, current_user),
             'comments': [_serialize_comment(c) for c in comments],
         })
 
