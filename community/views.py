@@ -1,6 +1,7 @@
 import json
 import traceback
 import boto3
+from urllib.parse import urlparse
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import get_object_or_404
@@ -36,6 +37,33 @@ def _absolute_file_url(request, file_field):
     if request and url.startswith('/'):
         return request.build_absolute_uri(url)
     return url
+
+
+def _is_allowed_cors_origin(origin):
+    if not origin:
+        return False
+
+    if origin in getattr(settings, 'CORS_ALLOWED_ORIGINS', []):
+        return True
+
+    host = urlparse(origin).hostname or ''
+    return (
+        host == 'vikingroots.com'
+        or host.endswith('.vikingroots.com')
+        or host == 'gimlisaga.org'
+        or host.endswith('.gimlisaga.org')
+    )
+
+
+def _json_response(request, data, status=200):
+    response = JsonResponse(data, status=status)
+    origin = request.headers.get('Origin')
+    if _is_allowed_cors_origin(origin):
+        response['Access-Control-Allow-Origin'] = origin
+        response['Access-Control-Allow-Credentials'] = 'true'
+        vary = response.get('Vary')
+        response['Vary'] = f'{vary}, Origin' if vary else 'Origin'
+    return response
 
 def get_user_for_request(request):
     """Get authenticated user or create test user"""
@@ -383,15 +411,24 @@ def search_users(request):
 def create_post(request):
     """Create a new post with optional image and tagged users."""
     if request.method != 'POST':
-        return JsonResponse({'error': 'Invalid request method'}, status=405)
+        return _json_response(request, {'error': 'Invalid request method'}, status=405)
 
     if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Authentication required'}, status=401)
+        return _json_response(request, {'error': 'Authentication required'}, status=401)
 
     try:
+        print(
+            "create_post upload:",
+            {
+                "user_id": request.user.id,
+                "content_type": request.META.get("CONTENT_TYPE"),
+                "file_keys": list(request.FILES.keys()),
+                "content_length": request.META.get("CONTENT_LENGTH"),
+            },
+        )
         content = request.POST.get('content', '').strip()
         if not content and not request.FILES.get('image'):
-            return JsonResponse({'error': 'Post must have content or an image'}, status=400)
+            return _json_response(request, {'error': 'Post must have content or an image'}, status=400)
 
         post = Post.objects.create(
             author=request.user,
@@ -404,10 +441,10 @@ def create_post(request):
             allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
             if image_file.content_type not in allowed_types:
                 post.delete()
-                return JsonResponse({'error': 'Invalid image type'}, status=400)
+                return _json_response(request, {'error': 'Invalid image type'}, status=400)
             if image_file.size > 10 * 1024 * 1024:
                 post.delete()
-                return JsonResponse({'error': 'Image too large (max 10MB)'}, status=400)
+                return _json_response(request, {'error': 'Image too large (max 10MB)'}, status=400)
             post.image = image_file
             post.save()
             
@@ -442,24 +479,35 @@ def create_post(request):
             except Group.DoesNotExist:
                 pass
 
-        return JsonResponse({
+        serialized_post = _serialize_post(post, request.user, request)
+        print(
+            "create_post response:",
+            {
+                "post_id": post.id,
+                "has_image": bool(post.image),
+                "image_url": serialized_post.get("image_url"),
+                "origin": request.headers.get("Origin"),
+            },
+        )
+
+        return _json_response(request, {
             'message': 'Post created successfully',
-            'post': _serialize_post(post, request.user, request),
+            'post': serialized_post,
         }, status=201)
 
     except Exception as e:
         traceback.print_exc()
-        return JsonResponse({'error': f'Failed to create post: {str(e)}'}, status=500)
+        return _json_response(request, {'error': f'Failed to create post: {str(e)}'}, status=500)
 
 
 @csrf_exempt
 def list_posts(request):
     """Get posts for the current user's feed, profile view, or group."""
     if request.method != 'GET':
-        return JsonResponse({'error': 'Invalid request method'}, status=405)
+        return _json_response(request, {'error': 'Invalid request method'}, status=405)
 
     if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Authentication required'}, status=401)
+        return _json_response(request, {'error': 'Authentication required'}, status=401)
 
     try:
         page = int(request.GET.get('page', 1))
@@ -475,22 +523,22 @@ def list_posts(request):
 
         if group_id:
             if not GroupMembership.objects.filter(user=request.user, group_id=group_id, status='active').exists():
-                return JsonResponse({'error': 'You must be a group member to view these posts'}, status=403)
+                return _json_response(request, {'error': 'You must be a group member to view these posts'}, status=403)
             posts = posts.filter(group_context__group_id=group_id)
         elif user_id or username:
             if user_id:
                 try:
                     requested_user_id = int(user_id)
                 except (TypeError, ValueError):
-                    return JsonResponse({'error': 'Invalid user_id'}, status=400)
+                    return _json_response(request, {'error': 'Invalid user_id'}, status=400)
             else:
                 try:
                     requested_user_id = User.objects.get(username__iexact=username).id
                 except User.DoesNotExist:
-                    return JsonResponse({'error': 'User not found'}, status=404)
+                    return _json_response(request, {'error': 'User not found'}, status=404)
 
             if requested_user_id not in _accepted_connection_user_ids(request.user):
-                return JsonResponse({'error': 'You can only view posts from your accepted connections'}, status=403)
+                return _json_response(request, {'error': 'You can only view posts from your accepted connections'}, status=403)
             posts = posts.filter(author_id=requested_user_id)
         else:
             posts = posts.filter(author_id__in=_accepted_connection_user_ids(request.user))
@@ -500,7 +548,7 @@ def list_posts(request):
 
         current_user = request.user if request.user.is_authenticated else None
 
-        return JsonResponse({
+        return _json_response(request, {
             'posts': [_serialize_post(p, current_user, request) for p in posts],
             'total': total,
             'page': page,
@@ -509,7 +557,7 @@ def list_posts(request):
 
     except Exception as e:
         traceback.print_exc()
-        return JsonResponse({'error': str(e)}, status=500)
+        return _json_response(request, {'error': str(e)}, status=500)
 
 
 @csrf_exempt

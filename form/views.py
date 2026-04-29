@@ -92,7 +92,7 @@ def _send_welcome_email(user: User, _generated_password: str) -> bool:
     })
     invite_separator = "&" if "?" in password_setup_url else "?"
     invite_url = f"{password_setup_url}{invite_separator}{invite_query}"
-    subject = f"Viking Roots Invitation - {site_url}"
+    subject = "Your Viking Roots Journey Continues"
 
     display_name = user.get_full_name().strip() or user.username
     current_year = timezone.now().year
@@ -111,16 +111,18 @@ def _send_welcome_email(user: User, _generated_password: str) -> bool:
     logo_src = f"cid:{logo_content_id}" if logo_path.is_file() else logo_url
 
     message = (
-        f"[Viking Roots]({site_url})\n\n"
-        "Welcome to Viking Roots!\n\n"
-        f"Hi {display_name},\n\n"
-        "An administrator has invited you to access Viking Roots. Please use the link below to set your password "
-        "and finish setting up your account.\n\n"
+        "Welcome back to Viking Roots,\n\n"
+        "We’ve built a new experience—one that brings your stories, photos, and connections to life in a more "
+        "powerful way.\n\n"
+        "Your account is ready. To continue your journey, simply set a new password.\n\n"
         f"Email: {user.email}\n\n"
-        f"Accept Invitation: {invite_url}\n\n"
-        f"This link expires in {timeout_minutes} minutes.\n\n"
-        "Thank you,\n\n"
-        "Team Viking Roots\n\n"
+        "Set Your Password & Enter:\n"
+        f"{invite_url}\n\n"
+        f"This secure link will expire in {timeout_minutes} minutes.\n\n"
+        "We’re excited to have you with us as we continue preserving the stories that matter—now and for "
+        "generations to come.\n\n"
+        "Warm regards,\n"
+        "The Viking Roots Team\n\n"
         f"(c) {current_year} Viking Roots. All rights reserved."
     )
 
@@ -137,11 +139,14 @@ def _send_welcome_email(user: User, _generated_password: str) -> bool:
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
-<title>Viking Roots</title>
+<title>Your Viking Roots Journey Continues</title>
 <style>
 @media only screen and (max-width: 600px) {{
-  .inner-body, .footer {{
+  .email-container, .footer {{
     width: 100% !important;
+  }}
+  .content-cell {{
+    padding: 24px !important;
   }}
 }}
 
@@ -152,47 +157,57 @@ def _send_welcome_email(user: User, _generated_password: str) -> bool:
 }}
 </style>
 </head>
-<body style="box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #ffffff; color: #4a5568; height: 100%; line-height: 1.4; margin: 0; padding: 0; width: 100% !important;">
-<table class="wrapper" width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #edf2f7; margin: 0; padding: 0; width: 100%;">
+<body style="box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f1ec; color: #2d3748; height: 100%; line-height: 1.5; margin: 0; padding: 0; width: 100% !important;">
+<div style="display: none; font-size: 1px; line-height: 1px; max-height: 0; max-width: 0; opacity: 0; overflow: hidden;">
+Your account is ready. Set your password to continue your Viking Roots journey.
+</div>
+<table class="wrapper" width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #f4f1ec; margin: 0; padding: 0; width: 100%;">
 <tr>
 <td align="center">
 <table class="content" width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 0; padding: 0; width: 100%;">
 <tr>
-<td class="header" style="padding: 25px 0; text-align: center;">
-<a href="{safe_site_url}" style="color: #2d3748; font-size: 24px; font-weight: 700; text-decoration: none;">
-<img src="{safe_logo_src}" alt="Viking Roots" width="220" style="border: none; display: inline-block; height: auto; max-width: 220px; width: 60%;">
+<td class="header" style="padding: 32px 16px 20px 16px; text-align: center;">
+<a href="{safe_site_url}" style="color: #1f2933; font-size: 24px; font-weight: 700; text-decoration: none;">
+<img src="{safe_logo_src}" alt="Viking Roots" width="210" style="border: none; display: inline-block; height: auto; max-width: 210px; width: 58%;">
 </a>
 </td>
 </tr>
 <tr>
-<td class="body" width="100%" cellpadding="0" cellspacing="0" style="background-color: #edf2f7; border-bottom: 1px solid #edf2f7; border-top: 1px solid #edf2f7; margin: 0; padding: 0; width: 100%;">
-<table class="inner-body" align="center" width="570" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #ffffff; border-color: #e8e5ef; border-radius: 2px; border-width: 1px; box-shadow: 0 2px 0 rgba(0, 0, 150, 0.025), 2px 4px 0 rgba(0, 0, 150, 0.015); margin: 0 auto; padding: 0; width: 570px;">
+<td class="body" width="100%" cellpadding="0" cellspacing="0" style="margin: 0; padding: 0 16px; width: 100%;">
+<table class="email-container" align="center" width="600" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #ffffff; border: 1px solid #e4ded4; border-radius: 8px; box-shadow: 0 12px 32px rgba(31, 41, 51, 0.08); margin: 0 auto; overflow: hidden; padding: 0; width: 600px;">
 <tr>
-<td class="content-cell" style="max-width: 100vw; padding: 32px;">
-<div style="font-size: 16px;">
-<p style="font-size: 16px; line-height: 1.5em; margin-top: 0; text-align: left;">Welcome to Viking Roots!</p>
-<p style="font-size: 16px; line-height: 1.5em; margin-top: 0; text-align: left;">Hi {safe_display_name},</p>
-<p style="font-size: 16px; line-height: 1.5em; margin-top: 0; text-align: left;">An administrator has invited you to access Viking Roots. Please use the link below to set your password and finish setting up your account.</p>
-<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; margin: 22px 0;">
-<tr>
-<td style="color: #718096; font-size: 14px; padding: 14px 16px 6px 16px;">Email</td>
+<td style="background-color: #1f2933; padding: 6px 0;"></td>
 </tr>
 <tr>
-<td style="color: #2d3748; font-size: 16px; font-weight: 600; padding: 0 16px 14px 16px;">{safe_email}</td>
+<td class="content-cell" style="max-width: 100vw; padding: 40px;">
+<h1 style="color: #1f2933; font-size: 28px; line-height: 1.25; margin: 0 0 18px 0;">Welcome back to Viking Roots,</h1>
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 0 0 26px 0;">
+<tr>
+<td style="border-top: 1px solid #e4ded4; font-size: 1px; line-height: 1px;">&nbsp;</td>
 </tr>
 </table>
-<p style="font-size: 16px; line-height: 1.5em; margin-top: 0; text-align: left;">The setup page will prefill your email so you can choose your own password.</p>
-<table class="action" align="center" width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 30px auto; padding: 0; text-align: center; width: 100%;">
+<p style="color: #4a5568; font-size: 16px; line-height: 1.65; margin: 0 0 22px 0;">We’ve built a new experience—one that brings your stories, photos, and connections to life in a more powerful way.</p>
+<p style="color: #4a5568; font-size: 16px; line-height: 1.65; margin: 0 0 26px 0;">Your account is ready. To continue your journey, simply set a new password.</p>
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #fbfaf7; border: 1px solid #e4ded4; border-radius: 8px; margin: 0 0 28px 0;">
+<tr>
+<td style="color: #6b7280; font-size: 13px; font-weight: 700; padding: 16px 18px 6px 18px; text-transform: uppercase;">Email</td>
+</tr>
+<tr>
+<td style="color: #1f2933; font-size: 16px; font-weight: 700; padding: 0 18px 16px 18px;">{safe_email}</td>
+</tr>
+</table>
+<table class="action" align="center" width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 0 0 26px 0; padding: 0; text-align: center; width: 100%;">
 <tr>
 <td align="center">
-<a href="{safe_invite_url}" class="button button-primary" target="_blank" rel="noopener" style="-webkit-text-size-adjust: none; background-color: #2d3748; border-bottom: 8px solid #2d3748; border-left: 18px solid #2d3748; border-radius: 4px; border-right: 18px solid #2d3748; border-top: 8px solid #2d3748; color: #ffffff; display: inline-block; overflow: hidden; text-decoration: none;">Accept Invitation</a>
+<a href="{safe_invite_url}" class="button" target="_blank" rel="noopener" style="-webkit-text-size-adjust: none; background-color: #c88a65; border-bottom: 12px solid #c88a65; border-left: 24px solid #c88a65; border-radius: 6px; border-right: 24px solid #c88a65; border-top: 12px solid #c88a65; color: #111827; display: inline-block; font-size: 15px; font-weight: 800; line-height: 1; overflow: hidden; text-decoration: none;">Set Your Password &amp; Enter</a>
 </td>
 </tr>
 </table>
-<p style="color: #718096; font-size: 14px; line-height: 1.5em; margin-top: 0; text-align: left;">This link expires in {timeout_minutes} minutes.</p>
-<p style="font-size: 16px; line-height: 1.5em; margin-top: 0; text-align: left;">Thank you,</p>
-<p style="font-size: 16px; line-height: 1.5em; margin-top: 0; text-align: left;">Team Viking Roots</p>
-</div>
+<p style="color: #6b7280; font-size: 14px; line-height: 1.6; margin: 0 0 24px 0;">This secure link will expire in {timeout_minutes} minutes.</p>
+<p style="color: #4a5568; font-size: 16px; line-height: 1.65; margin: 0 0 24px 0;">We’re excited to have you with us as we continue preserving the stories that matter—now and for generations to come.</p>
+<p style="color: #6b7280; font-size: 13px; line-height: 1.6; margin: 0 0 6px 0;">If the button does not work, copy and paste this link into your browser:</p>
+<p style="color: #4a5568; font-size: 12px; line-height: 1.6; margin: 0 0 28px 0; word-break: break-all;"><a href="{safe_invite_url}" target="_blank" rel="noopener" style="color: #1f2933; text-decoration: underline;">{safe_invite_url}</a></p>
+<p style="color: #4a5568; font-size: 16px; line-height: 1.65; margin: 0;">Warm regards,<br><strong style="color: #1f2933;">The Viking Roots Team</strong></p>
 </td>
 </tr>
 </table>
@@ -200,11 +215,11 @@ def _send_welcome_email(user: User, _generated_password: str) -> bool:
 </tr>
 <tr>
 <td>
-<table class="footer" align="center" width="570" cellpadding="0" cellspacing="0" role="presentation" style="margin: 0 auto; padding: 0; text-align: center; width: 570px;">
+<table class="footer" align="center" width="600" cellpadding="0" cellspacing="0" role="presentation" style="margin: 0 auto; padding: 0; text-align: center; width: 600px;">
 <tr>
-<td class="content-cell" align="center" style="max-width: 100vw; padding: 32px;">
-<a href="{safe_site_url}" style="color: #2d3748; font-size: 14px; text-decoration: underline;">VikingRoots.com</a>
-<p style="color: #718096; font-size: 12px; line-height: 1.5em; margin-top: 10px; text-align: center;">&copy; {current_year} Viking Roots. All rights reserved.</p>
+<td class="content-cell" align="center" style="max-width: 100vw; padding: 26px 32px 36px 32px;">
+<a href="{safe_site_url}" style="color: #1f2933; font-size: 14px; font-weight: 700; text-decoration: none;">VikingRoots.com</a>
+<p style="color: #7b8794; font-size: 12px; line-height: 1.5; margin: 10px 0 0 0; text-align: center;">&copy; {current_year} Viking Roots. All rights reserved.</p>
 </td>
 </tr>
 </table>
