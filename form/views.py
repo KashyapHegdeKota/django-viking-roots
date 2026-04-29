@@ -1,14 +1,18 @@
+from email.mime.image import MIMEImage
+from html import escape
 import json
+from pathlib import Path
 import secrets
 import string
 from datetime import timedelta
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives, send_mail
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.utils import timezone
